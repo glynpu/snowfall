@@ -25,6 +25,13 @@ class TransformerLM(torch.nn.Module):
         super().__init__()
 
         self.embed = nn.Embedding(vocab_size, embed_unit)
+        self.input_embed = torch.nn.Sequential(
+            torch.nn.Linear(embed_unit, att_unit),
+            torch.nn.LayerNorm(att_unit),
+            torch.nn.Dropout(dropout_rate),
+            torch.nn.ReLU(),
+            # pos_enc_class(attention_dim, positional_dropout_rate),
+        )
         self.encoder = Encoder(
             idim=embed_unit,
             attention_dim=att_unit,
@@ -54,6 +61,7 @@ class TransformerLM(torch.nn.Module):
 
         """
         x = self.embed(input)
+        x = self.input_embed(x)
         mask = (generate_square_subsequent_mask(
             input.shape[-1]) == 0).unsqueeze(0).to(x.device)
         # import pdb; pdb.set_trace()

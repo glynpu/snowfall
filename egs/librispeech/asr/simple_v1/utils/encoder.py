@@ -94,13 +94,13 @@ class Encoder(torch.nn.Module):
 
         self.conv_subsampling_factor = 1
         # import pdb; pdb.set_trace()
-        self.embed = torch.nn.Sequential(
-            torch.nn.Linear(idim, attention_dim),
-            torch.nn.LayerNorm(attention_dim),
-            torch.nn.Dropout(dropout_rate),
-            torch.nn.ReLU(),
-            # pos_enc_class(attention_dim, positional_dropout_rate),
-        )
+        # self.embed = torch.nn.Sequential(
+        #     torch.nn.Linear(idim, attention_dim),
+        #     torch.nn.LayerNorm(attention_dim),
+        #     torch.nn.Dropout(dropout_rate),
+        #     torch.nn.ReLU(),
+        #     # pos_enc_class(attention_dim, positional_dropout_rate),
+        # )
         self.normalize_before = normalize_before
         positionwise_layer, positionwise_layer_args = self.get_positionwise_layer(
             positionwise_layer_type,
@@ -163,7 +163,7 @@ class Encoder(torch.nn.Module):
             torch.Tensor: Mask tensor (#batch, time).
 
         """
-        xs = self.embed(xs)
+        # xs = self.embed(xs)
         xs, masks = self.encoders(xs, masks)
         # import pdb; pdb.set_trace()
         if self.normalize_before:
