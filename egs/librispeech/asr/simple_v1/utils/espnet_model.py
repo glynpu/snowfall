@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from typeguard import check_argument_types
 from typeguard import check_return_type
 
-from utils.nets_utils import make_pad_mask
+from snowfall.models.transformer import  make_pad_mask
 from utils.transformer_lm import TransformerLM
 
 
@@ -44,7 +44,7 @@ class ESPnetLanguageModel(torch.nn.Module):
 
         # 2. Forward Language model
         # x: (Batch, Length) -> y: (Batch, Length, NVocab)
-        y, _ = self.lm(x, None)
+        y = self.lm(x, None)
 
         # 3. Calc negative log likelihood
         # nll: (BxL,)
@@ -104,17 +104,7 @@ def rename_state_dict(rename_patterns: List[Tuple[str, str]],
             for k in old_keys:
                 v = state_dict.pop(k)
                 new_k = re.sub(old_pattern, new_pattern, k)
-                # new_k = k.replace(old_pattern, new_pattern)
                 state_dict[new_k] = v
-
-
-    # old_keys = [k for k in state_dict if k.startswith(old_prefix)]
-    # if len(old_keys) > 0:
-    #     logging.warning(f"Rename: {old_prefix} -> {new_prefix}")
-    # for k in old_keys:
-    #     v = state_dict.pop(k)
-    #     new_k = k.replace(old_prefix, new_prefix)
-    #     state_dict[new_k] = v
 
 
 def build_model_from_file(
@@ -151,10 +141,7 @@ def build_model_from_file(
                            ]
         rename_state_dict(rename_patterns=rename_patterns,
                           state_dict=state_dict)
-        # import pdb
-        # pdb.set_trace()
         mk = [key for key in model.state_dict().keys()]
         model.load_state_dict(state_dict)
-        # model.load_state_dict(torch.load(model_file, map_location=device))
 
     return model, args

@@ -17,7 +17,7 @@ from typeguard import check_return_type
 
 from utils.sentencepiece_tokenizer import SentencepiecesTokenizer
 from utils.token_id_converter import TokenIDConverter
-from utils.nets_utils import pad_list
+from snowfall.models.transformer import pad_list
 
 
 class CommonPreprocessor:
