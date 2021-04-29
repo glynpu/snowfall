@@ -141,9 +141,9 @@ def build_model_from_file(
             #   in PyTorch<=1.4
             device = f"cuda:{torch.cuda.current_device()}"
         state_dict = torch.load(model_file, map_location=device)
-        # rename_patterns = [('.feed_forward.w_1', '.linear1'),
-        #                    ('.feed_forward.w_2', '.linear2')]
-        rename_patterns = [('.encoder.embed', '.input_embed')]
+        rename_patterns = [('.feed_forward.w_1', '.linear1'),
+                           ('.feed_forward.w_2', '.linear2'),
+                           ('.encoder.embed', '.input_embed')]
         rename_state_dict(rename_patterns=rename_patterns,
                           state_dict=state_dict)
         # import pdb

@@ -97,7 +97,7 @@ class MultiHeadedAttention(nn.Module):
 
         return self.linear_out(x)  # (batch, time1, d_model)
 
-    def forward(self, query, key, value, mask):
+    def forward(self, query, key, value, key_padding_mask=None, attn_mask=None):
         """Compute scaled dot product attention.
 
         Args:
@@ -113,7 +113,7 @@ class MultiHeadedAttention(nn.Module):
         """
         q, k, v = self.forward_qkv(query, key, value)
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
-        return self.forward_attention(v, scores, mask)
+        return self.forward_attention(v, scores, attn_mask)
 
 
 class LegacyRelPositionMultiHeadedAttention(MultiHeadedAttention):

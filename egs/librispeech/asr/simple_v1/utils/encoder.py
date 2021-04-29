@@ -9,6 +9,7 @@ import torch
 from utils.nets_utils import rename_state_dict
 from utils.attention import MultiHeadedAttention
 # from espnet.nets.pytorch_backend.transformer.embedding import PositionalEncoding
+from snowfall.models.transformer import TransformerEncoderLayer
 from utils.encoder_layer import EncoderLayer
 # from espnet.nets.pytorch_backend.transformer.layer_norm import LayerNorm
 from utils.positionwise_feed_forward import (
@@ -123,17 +124,29 @@ class Encoder(torch.nn.Module):
                 )
             ] * num_blocks
 
+        # import pdb; pdb.set_trace()
         self.encoders = repeat(
             num_blocks,
-            lambda lnum: EncoderLayer(
-                attention_dim,
-                encoder_selfattn_layer(*encoder_selfattn_layer_args[lnum]),
-                positionwise_layer(*positionwise_layer_args),
-                dropout_rate,
-                normalize_before,
-                concat_after,
+            lambda lnum: TransformerEncoderLayer(
+                d_model=attention_dim,
+                custom_attn=encoder_selfattn_layer(*encoder_selfattn_layer_args[lnum]),
+                nhead=8,
+                dim_feedforward=2048,
+                normalize_before=True,
+                dropout=0.0,
             ),
         )
+        # self.encoders = repeat(
+        #     num_blocks,
+        #     lambda lnum: EncoderLayer(
+        #         attention_dim,
+        #         encoder_selfattn_layer(*encoder_selfattn_layer_args[lnum]),
+        #         positionwise_layer(*positionwise_layer_args),
+        #         dropout_rate,
+        #         normalize_before,
+        #         concat_after,
+        #     ),
+        # )
         if self.normalize_before:
             self.after_norm = torch.nn.LayerNorm(attention_dim)
 
