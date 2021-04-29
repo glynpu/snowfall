@@ -184,9 +184,15 @@ class TransformerEncoderLayer(nn.Module):
     """
 
     def __init__(self, d_model: int, nhead: int, dim_feedforward: int = 2048, dropout: float = 0.1,
-                 activation: str = "relu", normalize_before: bool = True) -> None:
+                 activation: str = "relu", normalize_before: bool = True,
+                 custom_attn=None) -> None:
         super(TransformerEncoderLayer, self).__init__()
-        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=0.0)
+
+        if custom_attn is not None:
+            self.self_attn = custom_attn
+        else:
+            self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=0.0)
+
         # Implementation of Feedforward model
         self.linear1 = nn.Linear(d_model, dim_feedforward)
         self.dropout = nn.Dropout(dropout)
@@ -226,7 +232,7 @@ class TransformerEncoderLayer(nn.Module):
         if self.normalize_before:
             src = self.norm1(src)
         src2 = self.self_attn(src, src, src, attn_mask=src_mask,
-                              key_padding_mask=src_key_padding_mask)[0]
+                              key_padding_mask=src_key_padding_mask)
         src = residual + self.dropout1(src2)
         if not self.normalize_before:
             src = self.norm1(src)
@@ -652,6 +658,34 @@ def generate_square_subsequent_mask(sz: int) -> Tensor:
     mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
     return mask
 
+# modified from:
+# https://github.com/espnet/espnet/blob/dab2092bc9c8e184c48cc6e603037333bd97dcd1/espnet/nets/pytorch_backend/nets_utils.py#L64
+def make_pad_mask(lengths):
+    """Make mask tensor containing indices of padded part.
+    Args:
+        lengths (LongTensor or List): Batch of lengths (B,).
+
+    Returns:
+        Tensor: Mask tensor containing indices of padded part.
+    Examples:
+        With only lengths.
+
+        >>> lengths = [5, 3, 2]
+        >>> make_non_pad_mask(lengths)
+        masks = [[0, 0, 0, 0 ,0],
+                 [0, 0, 0, 1, 1],
+                 [0, 0, 1, 1, 1]]
+    """
+    if not isinstance(lengths, list):
+        lengths = lengths.tolist()
+
+    maxlen = int(max(lengths))
+    bs = int(len(lengths))
+    seq_range = torch.arange(0, maxlen, dtype=torch.int64)
+    seq_range_expand = seq_range.unsqueeze(0).expand(bs, maxlen)
+    seq_length_expand = seq_range_expand.new(lengths).unsqueeze(-1)
+    mask = seq_range_expand >= seq_length_expand
+    return mask
 
 def add_sos_eos(ys: List[List[int]], lexicon: k2.Fsa, sos: int, eos: int, ignore_id: int = -1) -> Tuple[Tensor, Tensor]:
     """Add <sos> and <eos> labels.

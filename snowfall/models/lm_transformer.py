@@ -92,12 +92,6 @@ class TransformerLM(nn.Module):
         y = self.decoder(h)
         return y
 
-    def score(self, text: torch.Tensor,
-            text_lengths: torch.Tensor) -> torch.Tensor:
-        nll, _ = self.nll(text)
-        score = torch.sum(nll, -1)
-        return score
-
     def nll(self, text: torch.Tensor,
             text_lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         batch_size = text.size(0)

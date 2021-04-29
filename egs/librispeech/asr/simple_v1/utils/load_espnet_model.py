@@ -8,57 +8,13 @@ import yaml
 from pathlib import Path
 
 import torch
-import torch.nn.functional as F
 from typeguard import check_argument_types
 from typeguard import check_return_type
 
-from snowfall.models.transformer import  make_pad_mask
-from utils.transformer_lm import TransformerLM
+# from utils.transformer_lm import TransformerLM
+from snowfall.models.lm_transformer import TransformerLM
 
-
-class ESPnetLanguageModel(torch.nn.Module):
-
-    def __init__(self, lm, vocab_size: int, ignore_id: int = 0):
-        assert check_argument_types()
-        super().__init__()
-        self.lm = lm
-        self.sos = vocab_size - 1
-        self.eos = vocab_size - 1
-
-        # ignore_id may be assumed as 0, shared with CTC-blank symbol for ASR.
-        self.ignore_id = ignore_id
-
-    def nll(self, text: torch.Tensor,
-            text_lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        batch_size = text.size(0)
-        # For data parallel
-        text = text[:, :text_lengths.max()]
-
-        # 1. Create a sentence pair like '<sos> w1 w2 w3' and 'w1 w2 w3 <eos>'
-        # text: (Batch, Length) -> x, y: (Batch, Length + 1)
-        x = F.pad(text, [1, 0], "constant", self.eos)
-        t = F.pad(text, [0, 1], "constant", self.ignore_id)
-        for i, l in enumerate(text_lengths):
-            t[i, l] = self.sos
-        x_lengths = text_lengths + 1
-
-        # 2. Forward Language model
-        # x: (Batch, Length) -> y: (Batch, Length, NVocab)
-        y = self.lm(x, None)
-
-        # 3. Calc negative log likelihood
-        # nll: (BxL,)
-        nll = F.cross_entropy(y.view(-1, y.shape[-1]),
-                              t.view(-1),
-                              reduction="none")
-        # nll: (BxL,) -> (BxL,)
-        nll.masked_fill_(make_pad_mask(x_lengths).to(nll.device).view(-1), 0.0)
-        # nll: (BxL,) -> (B, L)
-        nll = nll.view(batch_size, -1)
-        return nll, x_lengths
-
-
-def build_model(args: argparse.Namespace) -> ESPnetLanguageModel:
+def build_model(args: argparse.Namespace):
     assert check_argument_types()
     if isinstance(args.token_list, str):
         with open(args.token_list, encoding="utf-8") as f:
@@ -77,20 +33,8 @@ def build_model(args: argparse.Namespace) -> ESPnetLanguageModel:
 
     # 1. Build LM model
     # lm_class = lm_choices.get_class(args.lm)
-    lm = TransformerLM(vocab_size=vocab_size, **args.lm_conf)
+    model = TransformerLM(vocab_size=vocab_size, **args.lm_conf)
 
-    # 2. Build ESPnetModel
-    # Assume the last-id is sos_and_eos
-    model = ESPnetLanguageModel(lm=lm,
-                                vocab_size=vocab_size,
-                                **args.model_conf)
-
-    # FIXME(kamo): Should be done in model?
-    # 3. Initialize
-    # if args.init is not None:
-    #     initialize(model, args.init)
-
-    assert check_return_type(model)
     return model
 
 
@@ -129,15 +73,13 @@ def build_model_from_file(
     model = build_model(args)
     model.to(device)
     if model_file is not None:
-        if device == "cuda":
-            # NOTE(kamo): "cuda" for torch.load always indicates cuda:0
-            #   in PyTorch<=1.4
-            device = f"cuda:{torch.cuda.current_device()}"
         state_dict = torch.load(model_file, map_location=device)
+
         rename_patterns = [('.feed_forward.w_1', '.linear1'),
                            ('.feed_forward.w_2', '.linear2'),
                            ('.encoder.embed', '.input_embed'),
                            (r'(lm.encoder.encoders.)(\d+)', r'\1layers.\2' ),
+                           (r'(lm.)([\s\S]*)', r'\2' ),
                            ]
         rename_state_dict(rename_patterns=rename_patterns,
                           state_dict=state_dict)
