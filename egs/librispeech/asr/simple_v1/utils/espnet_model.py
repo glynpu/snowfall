@@ -1,4 +1,5 @@
 import argparse
+import re
 from typing import Dict
 from typing import Tuple
 from typing import Union
@@ -102,8 +103,10 @@ def rename_state_dict(rename_patterns: List[Tuple[str, str]],
             old_keys = [k for k in state_dict if k.find(old_pattern)]
             for k in old_keys:
                 v = state_dict.pop(k)
-                new_k = k.replace(old_pattern, new_pattern)
+                new_k = re.sub(old_pattern, new_pattern, k)
+                # new_k = k.replace(old_pattern, new_pattern)
                 state_dict[new_k] = v
+
 
     # old_keys = [k for k in state_dict if k.startswith(old_prefix)]
     # if len(old_keys) > 0:
@@ -143,7 +146,9 @@ def build_model_from_file(
         state_dict = torch.load(model_file, map_location=device)
         rename_patterns = [('.feed_forward.w_1', '.linear1'),
                            ('.feed_forward.w_2', '.linear2'),
-                           ('.encoder.embed', '.input_embed')]
+                           ('.encoder.embed', '.input_embed'),
+                           (r'(lm.encoder.encoders.)(\d+)', r'\1layers.\2' ),
+                           ]
         rename_state_dict(rename_patterns=rename_patterns,
                           state_dict=state_dict)
         # import pdb
