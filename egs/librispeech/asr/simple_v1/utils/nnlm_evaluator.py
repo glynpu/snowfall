@@ -2,6 +2,8 @@ from typing import List
 from typing import Optional
 
 import k2
+from snowfall.models.transformer import pad_list
+
 from utils.sentencepiece_tokenizer import SentencepiecesTokenizer
 from utils.load_espnet_model import build_model_from_file
 
@@ -48,8 +50,8 @@ class DataIterator:
         if input_type == 'auxlabel':
             assert symbol_table is not None
             self.symbol_table = symbol_table
-        call_fn_name = f'_call_{input_type}'
-        self.__call__ = getattr(self, call_fn)
+
+        self.__call__ = self._get_func('call')
         self.tokenizer = get_tokenizer(tokenizer_type, tokenizer_file)
 
     def _process_auxlabel(self, word_seqs):
@@ -58,15 +60,14 @@ class DataIterator:
         utts = [self.tokennizer.text2tokens(text) for text in texts]
         return utt
 
+    def _get_func(self, prefix):
+        fn_name = f'_{prefix}_{input_type}'
+        fn = getattr(self, fn_name)
+
     def _get_process_fn(self, input_type: str):
         _validate_input_type(input_type)
-
-        fn_name = f'_process_{input_type}'
-        fn = getattr(self, fn_name)
+        fn = self._get_func('process')
         return fn
-
-    def _pad_batch(self, batch):
-        return path
 
     # each _call* functions is a generater
     def _call_auxlabel(self, word_seqs):
@@ -75,12 +76,12 @@ class DataIterator:
 
     def _call_token_id(self, utts):
         self.len = len(utts)
-        batch = []
+        tensor_list = []
         for idx, utt in enumerate(utts):
             utt = self.process_fn(utt)
-            batch.append(utt)
-            if len(batch) == self.batch_size or idx == self.len - 1:
-                self._pad_batch(batch)
+            batch.append(torch_from_numpy(utt))
+            if len(tensor_list) == self.batch_size or idx == self.len - 1:
+                batch = pad_list(tensor_list, pad_value)
                 yield batch
                 batch = []
 
@@ -98,13 +99,17 @@ class NNLMEvaluator:
         self.dataset = DataIterator(input_type)
         self.lm = build_model_from_file(lm_config_file, lm_model_file)
 
+    def _get_func(self, prefix):
+        fn_name = f'_{prefix}_{input_type}'
+        fn = getattr(self, fn_name)
+
     def _score_auxlabel(self, word_seqs):
         retval = []
         print(utts)
         for batch in self.dataset(word_seqs):
             print(len(batch))
-            score = self.lm(batch)
-            # retval.append(score)
+            score = self.lm.nll(batch)
+            retval.append(score)
         return retval
 
     def score(self, utts, input_type: Optional[str] = None):
@@ -114,6 +119,6 @@ class NNLMEvaluator:
         assert input_type == self.input_type, \
         'Unmatch input_type: utts is {input_type} while evaluator is for {self.input_type}'
 
-        fn_name = f'_score_{input_type}'
-        fn = getattr(self, fn_name)
-        return fn(utts)
+        score_fn = self._get_func('score')
+
+        return score_fn(utts)
