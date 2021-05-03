@@ -2,17 +2,14 @@ from typing import List, Iterable
 from utils.sentencepiece_tokenizer import SentencepiecesTokenizer
 
 
-class PreProcessor:
-
-    def __init__(self):
-        pass
+class PreProcessor(object):
 
     def _assign_special_symbols(self):
         if '<sos/eos>' in self.token2id:
             # <sos> and <eos> share same index for model download from espnet model zoo
             self.sos = self.token2id['<sos/eos>']
             self.eos = self.token2id['<sos/eos>']
-        elif ('<sos>' in self.token2id and '<eos>' in self.token2id):
+        elif '<sos>' in self.token2id and '<eos>' in self.token2id:
             self.sos = self.token2id['<sos>']
             self.eos = self.token2id['<eos>']
         else:
@@ -23,9 +20,6 @@ class PreProcessor:
             raise RuntimeError(
                 f"Unknown symbol '{unk_symbol}' doesn't exist in the token_list"
             )
-
-    def __init__(self):
-        raise NotImplementedError('Base class for Preprocessor')
 
 
 class SpmPreProcessor(PreProcessor):
