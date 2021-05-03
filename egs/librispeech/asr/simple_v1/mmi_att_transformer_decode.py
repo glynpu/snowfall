@@ -32,10 +32,12 @@ from snowfall.training.ctc_graph import build_ctc_topo
 from snowfall.training.mmi_graph import create_bigram_phone_lm
 from snowfall.training.mmi_graph import get_phone_symbols
 
+from utils.nnlm_evaluator import build_nnlmevaluator
+
 
 def decode(dataloader: torch.utils.data.DataLoader, model: AcousticModel,
            device: Union[str, torch.device], HLG: Fsa, symbols: SymbolTable,
-           num_paths: int, G: k2.Fsa, use_whole_lattice: bool, output_beam_size: float):
+           num_paths: int, G: k2.Fsa, evaluator, use_whole_lattice: bool, output_beam_size: float):
     tot_num_cuts = len(dataloader.dataset.cuts)
     num_cuts = 0
     results = []  # a list of pair (ref_words, hyp_words)
@@ -73,12 +75,13 @@ def decode(dataloader: torch.utils.data.DataLoader, model: AcousticModel,
         lattices = k2.intersect_dense_pruned(HLG, dense_fsa_vec, 20.0, output_beam_size, 30,
                                              10000)
 
-        if G is None:
+        if G is None and evaluator is None:
             best_paths = k2.shortest_path(lattices, use_double_scores=True)
         else:
             best_paths = decode_with_lm_rescoring(
                 lattices,
                 G,
+                evaluator,
                 num_paths=num_paths,
                 use_whole_lattice=use_whole_lattice)
 
@@ -212,6 +215,11 @@ def get_parser():
         default=True,
         help='When enabled, it uses LM for rescoring')
     parser.add_argument(
+        '--use-nnlm-rescoring',
+        type=str2bool,
+        default=True,
+        help='When enabled, it uses LM for rescoring')
+    parser.add_argument(
         '--num-paths',
         type=int,
         default=-1,
@@ -219,6 +227,14 @@ def get_parser():
              'If it is negative, then rescore with the whole lattice.'\
              'CAUTION: You have to reduce max_duration in case of CUDA OOM'
              )
+    parser.add_argument(
+        "--lm_train_config",
+        type=str,
+        default='exp/lm_train_lm_transformer2_en_bpe5000/config.yaml')
+    parser.add_argument(
+        "--lm_model_file",
+        type=str,
+        default='exp/lm_train_lm_transformer2_en_bpe5000/valid.loss.ave.pth')
     return parser
 
 
@@ -233,6 +249,7 @@ def main():
     att_rate = args.att_rate
     num_paths = args.num_paths
     use_lm_rescoring = args.use_lm_rescoring
+    use_nnlm_rescoring = args.use_nnlm_rescoring
     use_whole_lattice = False
     if use_lm_rescoring and num_paths < 1:
         # It doesn't make sense to use n-best list for rescoring
@@ -324,6 +341,8 @@ def main():
         d = torch.load(lang_dir / 'HLG.pt')
         HLG = k2.Fsa.from_dict(d)
 
+    G = None
+    evaluator = None
     if use_lm_rescoring:
         if use_whole_lattice:
             logging.info('Rescoring with the whole lattice')
@@ -359,6 +378,9 @@ def main():
         logging.debug('Decoding without LM rescoring')
         G = None
 
+    if use_nnlm_rescoring:
+        evaluator = build_nnlmevaluator(args, device=device, input_type='auxlabel')
+
     logging.debug("convert HLG to device")
     HLG = HLG.to(device)
     HLG.aux_labels = k2.ragged.remove_values_eq(HLG.aux_labels, 0)
@@ -381,6 +403,7 @@ def main():
                          symbols=symbol_table,
                          num_paths=num_paths,
                          G=G,
+                         evaluator=evaluator,
                          use_whole_lattice=use_whole_lattice,
                          output_beam_size=output_beam_size)
 
