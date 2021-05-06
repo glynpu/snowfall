@@ -1,5 +1,6 @@
 import os
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 from utils.dataset import DatasetOption, TextFileDataIterator, AuxlabelDataIterator
@@ -41,24 +42,29 @@ def build_nnlmevaluator(args,
     elif input_type == 'auxlabel':
         dataset_option = DatasetOption(input_type=input_type,
                                        preprocessor=preprocessor,
-                                       symbol_table='./data/lang_nosp/words.txt')
+                                       words_txt='./data/lang_nosp/words.txt')
         dataset = AuxlabelDataIterator(dataset_option)
 
     evaluator = NNLMEvaluator(lm=model, dataset=dataset, device=device)
     return evaluator
 
-
+@dataclass(frozen=True)
 class PPLResult:
+    nlls: List[float]
+    ntokens: int
+    nwords: int
 
-    def __init__(self, nlls=List[float], ntokens=None, nwords=None):
+    @property
+    def total_nll(self):
+        return sum(self.nlls)
 
-        self.nlls = nlls
-        self.ntokens = ntokens
-        self.nwords = nwords
-        self.total_nll = sum(nlls)
-        self.token_ppl = np.exp(self.total_nll / self.ntokens)
-        self.word_ppl = np.exp(self.total_nll / self.nwords)
+    @property
+    def token_ppl(self):
+        return np.exp(self.total_nll / self.ntokens)
 
+    @property
+    def word_ppl(self):
+        return np.exp(self.total_nll / self.nwords)
 
 class NNLMEvaluator:
 

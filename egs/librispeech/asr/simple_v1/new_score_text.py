@@ -12,11 +12,11 @@ def get_parser():
     )
 
     parser.add_argument(
-        "--train_config",
+        "--lm_train_config",
         type=str,
         default='exp/lm_train_lm_transformer2_en_bpe5000/config.yaml')
     parser.add_argument(
-        "--model_file",
+        "--lm_model_file",
         type=str,
         default='exp/lm_train_lm_transformer2_en_bpe5000/valid.loss.ave.pth')
     return parser
