@@ -2,22 +2,23 @@ import os
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
-from utils.dataset import DatasetOption, TextFileDataIterator, AuxlabelDataIterator
+from typing import List, Optional, Union
+from utils.dataset import DatasetOption, TextFileDataIterator, AuxlabelDataIterator, AbsLMDataIterator
 from utils.load_espnet_model import build_model_from_file
-from utils.preprocessor import build_preprocessor
+from snowfall.models.lm_transformer import TransformerLM
+from utils.numericalizer import get_numericalizer
 
 import numpy as np
 import torch
 
 # TODO(Liyong Guo): types may need to be supported ['text', 'token', 'token_id']
-_types_supported = ['text_file', 'auxlabel']
+_TYPES_SUPPORTED= ['text_file', 'auxlabel']
 
 
 def _validate_input_type(input_type: Optional[str] = None):
     # A valid input_type must be assigned from the client
     assert input_type is not None
-    assert input_type in _types_supported
+    assert input_type in _TYPES_SUPPORTED
 
 
 def build_nnlmevaluator(args,
@@ -31,17 +32,17 @@ def build_nnlmevaluator(args,
                                               model_type='espnet')
     model.to(device)
 
-    preprocessor = build_preprocessor(tokenizer_type='spm',
+    numericalizer = get_numericalizer(tokenizer_type='spm',
                                       tokenizer_file=train_args.bpemodel,
                                       token_list=train_args.token_list)
     if input_type == 'text_file':
         dataset_option = DatasetOption(input_type=input_type,
-                                       preprocessor=preprocessor)
+                                       preprocessor=numericalizer)
 
         dataset = TextFileDataIterator(dataset_option)
     elif input_type == 'auxlabel':
         dataset_option = DatasetOption(input_type=input_type,
-                                       preprocessor=preprocessor,
+                                       preprocessor=numericalizer,
                                        words_txt='./data/lang_nosp/words.txt')
         dataset = AuxlabelDataIterator(dataset_option)
 
@@ -66,13 +67,11 @@ class PPLResult:
     def word_ppl(self):
         return np.exp(self.total_nll / self.nwords)
 
+@dataclass
 class NNLMEvaluator:
-
-    def __init__(self, lm=None, dataset=None, device='cpu'):
-        super().__init__()
-        self.lm = lm
-        self.dataset = dataset
-        self.device = device
+    lm: TransformerLM
+    dataset: AbsLMDataIterator
+    device: Union[str, torch.device]
 
     @torch.no_grad()
     def nll(self, text_source):
@@ -84,7 +83,6 @@ class NNLMEvaluator:
                 text_source):
             xs_pad = xs_pad.to(self.device)
             target_pad = target_pad.to(self.device)
-            # token_lens = token_lens
             nll = self.lm.nll(xs_pad, target_pad, token_lens)
             nll = nll.detach().cpu().numpy().sum(1)
             nlls.extend(nll)

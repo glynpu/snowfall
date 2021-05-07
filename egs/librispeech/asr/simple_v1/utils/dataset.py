@@ -1,14 +1,16 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from torch.nn.utils.rnn import pad_sequence
-from typing import List, Optional
+from typing import List, Optional, Union
 
-from utils.preprocessor import PreProcessor
+from utils.numericalizer import SpmNumericalizer
 
 import k2
 import numpy as np
 import torch
+
+AnyPreProcessor = Union['SpmPreProcessor']
 
 
 def auxlabel_to_word(word_seqs: k2.RaggedInt,
@@ -32,60 +34,69 @@ class CollateFunc(object):
         self.pad_index = pad_index
 
     def __call__(self, batch: List[List[int]]):
-        '''batch contains token_id.
-           batch can be viewd as a ragged 2-d array, with a row represents a token_id.
-           token_id reprents a tokenized text, whose format is:
+        '''
+           batch is a ragged 2-d array, with a row
+           represents a tokenized text, whose format is:
            <bos_id> token_id token_id token_id *** <eos_id>
         '''
-        # data_pad: [batch_size, seq_len]
-        # each seq_len always different
+        # data_pad: [batch_size, max_seq_len]
+        # max_seq_len == len(max(batch, key=len))
         data_pad = pad_sequence(
             [torch.from_numpy(np.array(x)).long() for x in batch], True,
             self.pad_index)
         data_pad = data_pad.contiguous()
         xs_pad = data_pad[:, :-1].contiguous()
         ys_pad = data_pad[:, 1:].contiguous()
-        # xs_pad/ys_pad: [batch_size, max_seq_len]
-        # max_seq_len == max(len([<sos> token token token ... token])
-        #             == max(len([token token token ... token <eos>])
+        # xs_pad/ys_pad: [batch_size, max_seq_len - 1] # - 1 for removing <bos> or <eos>
         return xs_pad, ys_pad
 
 @dataclass
 class DatasetOption:
+    preprocessor: AnyPreProcessor
     input_type: Optional[str] = 'text_file'
     batch_size: int = 32
     pad_value: int = 0
-    preprocessor: Optional[PreProcessor] = None
     words_txt: Optional[Path] = None
+
+@dataclass
+class AbsLMDataIterator(ABC):
+    preprocessor: AnyPreProcessor
+    input_type: Optional[str] = 'text_file'
+    batch_size: int = 32
+    pad_value: int = 0
+    words_txt: Optional[Path] = None
+    _symbol_table = None
+    _collate_fn = None
+
+    @property
+    def collate_fn(self):
+        if self._collate_fn is None:
+            self._collate_fn = CollateFunc(self.pad_value)
+        return self._collate_fn
 
     @property
     def symbol_table(self):
-        return None if self.words_txt is None else k2.SymbolTable.from_file(self.words_txt)
-
-
-class AbsLMDataIterator(ABC):
-
-    def __init__(self, dataset_option):
-        self.input_type = dataset_option.input_type
-        self.batch_size = dataset_option.batch_size
-        self.pad_value = dataset_option.pad_value
-        self.preprocessor = dataset_option.preprocessor
-        if self.input_type == 'auxlabel':
-            assert dataset_option.symbol_table is not None
-        self.symbol_table = dataset_option.symbol_table
-
-        self.collate_fn = CollateFunc(self.pad_value)
+        assert self.words_txt is not None
+        if self._symbol_table is None:
+            self._symbol_table =  k2.SymbolTable.from_file(self.words_txt)
+        return self._symbol_table
 
     def _reset_container(self):
         self.token_ids_list = []
         self.token_lens = []
         self.word_lens = []
 
-    # text_source may text_file/word_seqs
+    @abstractmethod
+    def _text_generator(self, text_source):
+        pass
+
     def __call__(self, text_source):
+        """
+        Args:
+            text_source may be text_file / word_seqs
+        """
         self._reset_container()
         for text in self._text_generator(text_source):
-            # text = text.strip().split(maxsplit=1)[1]
             self.word_lens.append(len(text.split()) + 1)  # +1 for <eos>
 
             token_ids = self.preprocessor(text)
@@ -107,7 +118,7 @@ class AbsLMDataIterator(ABC):
 class TextFileDataIterator(AbsLMDataIterator):
 
     def __init__(self, dataset_option):
-        super().__init__(dataset_option)
+        super().__init__(**(dataset_option.__dict__))
 
     def _text_generator(self, text_file):
         with open(text_file, 'r') as f:
@@ -119,7 +130,7 @@ class TextFileDataIterator(AbsLMDataIterator):
 class AuxlabelDataIterator(AbsLMDataIterator):
 
     def __init__(self, dataset_option):
-        super().__init__(dataset_option)
+        super().__init__(**(dataset_option.__dict__))
 
     def _text_generator(self, word_seqs):
         # word_seqs --> text
