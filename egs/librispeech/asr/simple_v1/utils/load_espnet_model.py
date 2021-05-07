@@ -22,7 +22,7 @@ def rename_state_dict(rename_patterns: List[Tuple[str, str]],
 
 
 def load_espnet_model(
-    config_file: Union[Path, str],
+    config: Dict,
     model_file: Union[Path, str],
 ):
     """This method is used to load LM model downloaded from espnet model zoo.
@@ -32,14 +32,7 @@ def load_espnet_model(
         model_file: The model file saved when training.
 
     """
-    config_file = Path(config_file)
-
-    with config_file.open("r", encoding="utf-8") as f:
-        args = yaml.safe_load(f)
-    args = argparse.Namespace(**args)
-    vocab_size = len(args.token_list)
-
-    model = TransformerLM(vocab_size=vocab_size, **args.lm_conf)
+    model = TransformerLM(**config)
 
     assert model_file is not None, f"model file doesn't exist"
     state_dict = torch.load(model_file)
@@ -55,7 +48,7 @@ def load_espnet_model(
     rename_state_dict(rename_patterns=rename_patterns, state_dict=state_dict)
     model.load_state_dict(state_dict)
 
-    return model, args
+    return model
 
 
 def build_model_from_file(config=None, model_file=None, model_type='espnet'):
@@ -64,4 +57,4 @@ def build_model_from_file(config=None, model_file=None, model_type='espnet'):
     elif model_type == 'snowfall':
         raise NotImplementedError(f'Snowfall model to be suppported')
     else:
-        raise NotImplementedError(f'Unsupported model type {model_type}')
+        raise ValueError(f'Unsupported model type {model_type}')

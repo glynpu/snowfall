@@ -1,4 +1,7 @@
+import argparse
+import copy
 import os
+import yaml
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,15 +23,26 @@ def _validate_input_type(input_type: Optional[str] = None):
     assert input_type is not None
     assert input_type in _TYPES_SUPPORTED
 
+def _load_espnet_model_config(config_file):
+    config_file = Path(config_file)
+    with config_file.open("r", encoding="utf-8") as f:
+        args = yaml.safe_load(f)
+    return argparse.Namespace(**args)
 
 def build_nnlmevaluator(args,
                         device='cpu',
                         input_type='text_file',
                         batch_size=32):
     _validate_input_type(input_type)
+    lm_model_file = args.lm_model_file
+    train_args = _load_espnet_model_config(args.lm_train_config)
 
-    model, train_args = build_model_from_file(config=args.lm_train_config,
-                                              model_file=args.lm_model_file,
+    lm_config = copy.deepcopy(train_args.lm_conf)
+    lm_config['vocab_size'] = len(train_args.token_list)
+
+
+    model = build_model_from_file(config=lm_config,
+                                              model_file=lm_model_file,
                                               model_type='espnet')
     model.to(device)
 
