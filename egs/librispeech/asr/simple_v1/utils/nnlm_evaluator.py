@@ -14,6 +14,7 @@ from utils.numericalizer import get_numericalizer
 import numpy as np
 import torch
 
+
 # TODO(Liyong Guo): types may need to be supported ['text', 'token', 'token_id']
 _TYPES_SUPPORTED= ['text_file', 'auxlabel']
 
@@ -32,7 +33,9 @@ def _load_espnet_model_config(config_file):
 def build_nnlmevaluator(args,
                         device='cpu',
                         input_type='text_file',
-                        batch_size=32):
+                        batch_size=32,
+                        converter=None,
+                        tokenizer=None):
     _validate_input_type(input_type)
     lm_model_file = args.lm_model_file
     train_args = _load_espnet_model_config(args.lm_train_config)
@@ -57,8 +60,9 @@ def build_nnlmevaluator(args,
     elif input_type == 'auxlabel':
         dataset_option = DatasetOption(input_type=input_type,
                                        preprocessor=numericalizer,
-                                       words_txt='./data/lang_nosp/words.txt')
-        dataset = AuxlabelDataIterator(dataset_option)
+                                       words_txt='./data/lang_nosp/token2id.txt')
+                                       # words_txt='./data/lang_nosp/words.txt')
+        dataset = AuxlabelDataIterator(dataset_option, converter=converter, tokenizer=tokenizer)
 
     evaluator = NNLMEvaluator(lm=model, dataset=dataset, device=device)
     return evaluator

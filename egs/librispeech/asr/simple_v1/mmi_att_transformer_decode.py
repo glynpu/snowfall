@@ -60,6 +60,7 @@ def decode(dataloader: torch.utils.data.DataLoader, model: AcousticModel,
         with torch.no_grad():
             nnet_output, _, _ = model(feature, supervisions)
         # nnet_output is [N, C, T]
+        import pdb; pdb.set_trace()
         nnet_output = nnet_output.permute(0, 2,
                                           1)  # now nnet_output is [N, T, C]
 
@@ -277,7 +278,8 @@ def main():
     logging.debug("About to load model")
     # Note: Use "export CUDA_VISIBLE_DEVICES=N" to setup device id to N
     # device = torch.device('cuda', 1)
-    device = torch.device('cuda')
+    # device = torch.device('cuda')
+    device = torch.device('cpu')
 
     if att_rate != 0.0:
         num_decoder_layers = 6
@@ -301,6 +303,7 @@ def main():
             subsampling_factor=4,
             num_decoder_layers=num_decoder_layers)
 
+    import pdb; pdb.set_trace()
     model.P_scores = torch.nn.Parameter(P.scores.clone(), requires_grad=False)
 
     if avg == 1:

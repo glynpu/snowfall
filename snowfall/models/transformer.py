@@ -671,7 +671,7 @@ def make_pad_mask(lengths):
         With only lengths.
 
         >>> lengths = [5, 3, 2]
-        >>> make_non_pad_mask(lengths)
+        >>> make_pad_mask(lengths)
         masks = [[0, 0, 0, 0 ,0],
                  [0, 0, 0, 1, 1],
                  [0, 0, 1, 1, 1]]

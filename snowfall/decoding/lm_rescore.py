@@ -69,7 +69,7 @@ def compute_am_scores(lats: k2.Fsa, word_fsas_with_epsilon_loops: k2.Fsa,
     '''
     device = lats.device
     assert len(lats.shape) == 3
-    assert hasattr(lats, 'lm_scores')
+    # assert hasattr(lats, 'lm_scores')
 
     # k2.compose() currently does not support b_to_a_map. To void
     # replicating `lats`, we use k2.intersect_device here.
@@ -95,7 +95,7 @@ def compute_am_scores(lats: k2.Fsa, word_fsas_with_epsilon_loops: k2.Fsa,
     am_path_lats = k2.top_sort(k2.connect(am_path_lats.to('cpu'))).to(device)
 
     # The `scores` of every arc consists of `am_scores` and `lm_scores`
-    am_path_lats.scores = am_path_lats.scores - am_path_lats.lm_scores
+    # am_path_lats.scores = am_path_lats.scores - am_path_lats.lm_scores
 
     am_scores = am_path_lats.get_tot_scores(True, True)
 
@@ -134,7 +134,7 @@ def rescore_with_n_best_list(lats: k2.Fsa, G: k2.Fsa, evaluator,
 
     assert len(lats.shape) == 3
     assert hasattr(lats, 'aux_labels')
-    assert hasattr(lats, 'lm_scores')
+    # assert hasattr(lats, 'lm_scores')
 
     if G is not None:
         assert G.shape == (1, None, None)
@@ -204,6 +204,7 @@ def rescore_with_n_best_list(lats: k2.Fsa, G: k2.Fsa, evaluator,
     else:
         raise RuntimeError(f'both G and evaluator are None')
 
+    # import pdb; pdb.set_trace()
     tot_scores = am_scores + lm_scores
 
     # Remember that we used `k2.ragged.unique_sequences` to remove repeated
@@ -231,6 +232,7 @@ def rescore_with_n_best_list(lats: k2.Fsa, G: k2.Fsa, evaluator,
     labels = k2.index(lats.labels.contiguous(), best_paths)
 
     labels = k2.ragged.remove_values_eq(labels, -1)
+    # import pdb; pdb.set_trace()
 
     # lats.aux_labels is a k2.RaggedInt tensor with 2 axes, so
     # aux_labels is also a k2.RaggedInt with 2 axes

@@ -54,7 +54,16 @@ class MultiHeadedAttention(nn.Module):
             torch.Tensor: Transformed value tensor (#batch, n_head, time2, d_k).
 
         """
+        # import pdb; pdb.set_trace()
         n_batch = query.size(0)
+        # import numpy as np
+        # np.save('linear_q.weight.mat', self.linear_q.weight.cpu().numpy())
+        # np.save('linear_q.bias.mat', self.linear_q.bias.cpu().numpy())
+        # np.save('linear_k.weight.mat', self.linear_k.weight.cpu().numpy())
+        # np.save('linear_k.bias.mat', self.linear_k.bias.cpu().numpy())
+        # np.save('linear_v.weight.mat', self.linear_v.weight.cpu().numpy())
+        # np.save('linear_v.bias.mat', self.linear_v.bias.cpu().numpy())
+        # import pdb; pdb.set_trace()
         q = self.linear_q(query).view(n_batch, -1, self.h, self.d_k)
         k = self.linear_k(key).view(n_batch, -1, self.h, self.d_k)
         v = self.linear_v(value).view(n_batch, -1, self.h, self.d_k)
@@ -77,6 +86,7 @@ class MultiHeadedAttention(nn.Module):
                 weighted by the attention score (#batch, time1, time2).
 
         """
+        # import pdb; pdb.set_trace()
         n_batch = value.size(0)
         if mask is not None:
             mask = mask.unsqueeze(1).eq(0)  # (batch, 1, *, time2)
@@ -91,6 +101,7 @@ class MultiHeadedAttention(nn.Module):
             self.attn = torch.softmax(scores, dim=-1)  # (batch, head, time1, time2)
 
         p_attn = self.dropout(self.attn)
+        # import pdb; pdb.set_trace()
         x = torch.matmul(p_attn, value)  # (batch, head, time1, d_k)
         x = (
             x.transpose(1, 2).contiguous().view(n_batch, -1, self.h * self.d_k)
@@ -112,6 +123,10 @@ class MultiHeadedAttention(nn.Module):
             torch.Tensor: Output tensor (#batch, time1, d_model).
 
         """
+        # import numpy as np
+        # np.save('query.mat',query.cpu().numpy())
+        # np.save('key.mat',key.cpu().numpy())
+        # np.save('value.mat',value.cpu().numpy())
         q, k, v = self.forward_qkv(query, key, value)
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
         return self.forward_attention(v, scores, attn_mask)
@@ -282,6 +297,7 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
 
         """
         q, k, v = self.forward_qkv(query, key, value)
+        # import pdb; pdb.set_trace()
         q = q.transpose(1, 2)  # (batch, time1, head, d_k)
 
         n_batch_pos = pos_emb.size(0)
@@ -307,5 +323,6 @@ class RelPositionMultiHeadedAttention(MultiHeadedAttention):
         scores = (matrix_ac + matrix_bd) / math.sqrt(
             self.d_k
         )  # (batch, head, time1, time2)
+        # import pdb; pdb.set_trace()
 
         return self.forward_attention(v, scores, mask)

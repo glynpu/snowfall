@@ -1,6 +1,7 @@
 import argparse
 import torch
 import logging
+import math
 import numpy as np
 from utils.nnlm_evaluator import build_nnlmevaluator
 
@@ -32,7 +33,9 @@ def score_text():
     file_name = 'dump/raw/test_clean/text'
     with torch.no_grad():
         ppl_result = evaluator.nll(file_name)
+    assert math.isclose(ppl_result.token_ppl, 31.01335476225709)
     print(ppl_result.token_ppl)
+
 
 
 if __name__ == '__main__':

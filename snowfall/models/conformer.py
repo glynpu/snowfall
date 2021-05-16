@@ -45,6 +45,9 @@ class Conformer(Transformer):
 
         encoder_layer = ConformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, cnn_module_kernel, normalize_before)
         self.encoder = ConformerEncoder(encoder_layer, num_encoder_layers)
+        self.normalize_before = normalize_before
+        if self.normalize_before:
+            self.after_norm = nn.LayerNorm(d_model)
 
     def encode(self, x: Tensor, supervisions: Optional[Dict] = None) -> Tuple[Tensor, Optional[Tensor]]:
         """
@@ -64,6 +67,9 @@ class Conformer(Transformer):
         mask = encoder_padding_mask(x.size(0), supervisions)
         mask = mask.to(x.device) if mask != None else None
         x = self.encoder(x, pos_emb, src_key_padding_mask=mask)  # (T, B, F)
+        if self.normalize_before:
+            x = x.permute(1, 0, 2)
+            x = self.after_norm(x)
 
         return x, mask
 
@@ -478,6 +484,7 @@ class RelPositionMultiheadAttention(nn.Module):
             - attn_output_weights: :math:`(N, L, S)` where N is the batch size,
             L is the target sequence length, S is the source sequence length.
         """
+        # import pdb; pdb.set_trace()
 
         tgt_len, bsz, embed_dim = query.size()
         assert embed_dim == embed_dim_to_check
@@ -538,7 +545,8 @@ class RelPositionMultiheadAttention(nn.Module):
                 _b = _b[_start:]
             v = nn.functional.linear(value, _w, _b)
 
-        q = q * scaling
+
+        # q = q * scaling
 
         if attn_mask is not None:
             assert attn_mask.dtype == torch.float32 or attn_mask.dtype == torch.float64 or \
@@ -571,10 +579,12 @@ class RelPositionMultiheadAttention(nn.Module):
         src_len = k.size(0)
 
         if key_padding_mask is not None:
+            # import pdb; pdb.set_trace()
             assert key_padding_mask.size(0) == bsz, "{} == {}".format(key_padding_mask.size(0), bsz)
             assert key_padding_mask.size(1) == src_len, "{} == {}".format(key_padding_mask.size(1), src_len)
 
 
+        # import pdb; pdb.set_trace()
         q = q.transpose(0, 1)  # (batch, time1, head, d_k)  
 
         n_batch_pos = pos_emb.size(0)
@@ -595,7 +605,9 @@ class RelPositionMultiheadAttention(nn.Module):
         matrix_bd = torch.matmul(q_with_bias_v, p.transpose(-2, -1)) # (batch, head, time1, 2*time1-1)
         matrix_bd = self.rel_shift(matrix_bd)
 
-        attn_output_weights = (matrix_ac + matrix_bd)  # (batch, head, time1, time2)
+        # attn_output_weights = (matrix_ac + matrix_bd)  # (batch, head, time1, time2)
+        # import pdb; pdb.set_trace()
+        attn_output_weights = (matrix_ac + matrix_bd) * scaling  # (batch, head, time1, time2)
 
         attn_output_weights = attn_output_weights.view(bsz * num_heads, tgt_len, -1)
 
@@ -613,6 +625,7 @@ class RelPositionMultiheadAttention(nn.Module):
                 key_padding_mask.unsqueeze(1).unsqueeze(2),
                 float('-inf'),
             )
+            # import pdb; pdb.set_trace()
             attn_output_weights = attn_output_weights.view(bsz * num_heads, tgt_len, src_len)
 
         attn_output_weights = nn.functional.softmax(
