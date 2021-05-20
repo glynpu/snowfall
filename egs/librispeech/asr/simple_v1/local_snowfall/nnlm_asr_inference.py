@@ -17,8 +17,9 @@ from typeguard import check_return_type
 from typing import List, Dict
 
 from local_snowfall.asr import build_model
-from espnet2.text.build_tokenizer import build_tokenizer
-from espnet2.text.token_id_converter import TokenIDConverter
+from utils.numericalizer import SpmNumericalizer
+# from espnet2.text.build_tokenizer import build_tokenizer
+# from espnet2.text.token_id_converter import TokenIDConverter
 from espnet2.torch_utils.device_funcs import to_device
 from espnet2.torch_utils.set_all_random_seed import set_all_random_seed
 
@@ -100,6 +101,7 @@ class Speech2Text:
 
         model = build_model(asr_train_args)
         asr_model = model.to(device)
+        # import pdb; pdb.set_trace()
         state_dict = torch.load(asr_model_file, map_location=device)
         state_dict = {k:v for k,v in state_dict.items() if not k.startswith('decoder')}
         rename_patterns = [
@@ -135,15 +137,20 @@ class Speech2Text:
         token_type = asr_train_args.token_type
         bpemodel = asr_train_args.bpemodel
 
-        tokenizer = build_tokenizer(token_type=token_type, bpemodel=bpemodel)
-        converter = TokenIDConverter(token_list=token_list)
+        # tokenizer = build_tokenizer(token_type=token_type, bpemodel=bpemodel)
+        # converter = TokenIDConverter(token_list=token_list)
 
-        logging.info(f"Text tokenizer: {tokenizer}")
+        self.numericalizer = SpmNumericalizer(tokenizer_type='spm',
+                tokenizer_file=asr_train_args.bpemodel,
+                token_list=token_list,
+                unk_symbol='<unk>')
+
+        # logging.info(f"Text tokenizer: {tokenizer}")
 
         self.asr_model = asr_model
         # self.asr_train_args = asr_train_args
-        self.converter = converter
-        self.tokenizer = tokenizer
+        # self.converter = converter
+        # self.tokenizer = tokenizer
         self.device = device
         self.dtype = dtype
         phone_ids_with_blank = [i for i in range(5000)]
@@ -160,7 +167,7 @@ class Speech2Text:
         import argparse
         d_args ={'lm_train_config':'exp/lm_train_lm_transformer2_en_bpe5000/config.yaml', 'lm_model_file': 'exp/lm_train_lm_transformer2_en_bpe5000/valid.loss.ave.pth'}
         args = argparse.Namespace(**d_args)
-        self.evaluator = build_nnlmevaluator(args, device=device, input_type='auxlabel', converter=converter, tokenizer=tokenizer)
+        self.evaluator = build_nnlmevaluator(args, device=device, input_type='auxlabel', numericalizer=self.numericalizer, converter=None, tokenizer=None)
 
     @torch.no_grad()
     def __call__(
@@ -220,7 +227,7 @@ class Speech2Text:
         G = None
         num_paths=10
         use_whole_lattice=False
-        self.evaluator.converter = self.converter
+        # self.evaluator.converter = self.converter
         if True:
             best_paths = decode_with_lm_rescoring(
                 lattices,
@@ -238,12 +245,15 @@ class Speech2Text:
 
         # token_int = best_paths[0].aux_labels.cpu().numpy()
         token_int = list(filter(lambda x: x != 0, token_int))[:-1]
-        token = self.converter.ids2tokens(token_int)
+        # import pdb; pdb.set_trace()
+        # token = self.converter.ids2tokens(token_int)
+        token = self.numericalizer.ids2tokens(token_int)
         # token = list(filter(lambda x: x != '<sox/eos>', token))
         if token[-1] == '<sos/eos>':
             token = token[:-1]
 
-        text = self.tokenizer.tokens2text(token)
+        # text = self.tokenizer.tokens2text(token)
+        text = self.numericalizer.tokens2text(token)
 
         # import pdb; pdb.set_trace()
         results = []

@@ -14,23 +14,33 @@ AnyPreProcessor = Union['SpmPreProcessor']
 
 
 def auxlabel_to_word(word_seqs: k2.RaggedInt,
-                     symbol_table: k2.SymbolTable, converter=None, tokenizer=None) -> List[str]:
+                     symbol_table: k2.SymbolTable, numericalizer=None, converter=None, tokenizer=None) -> List[str]:
+    import pdb; pdb.set_trace()
     # word_ids = word_seqs.values()
     # words = [symbol_table.get(word_idx.item()) for word_idx in word_ids]
     # ragged_shape = word_seqs.row_splits(1)
     utts = []
-    if converter is None:
-        for idx, start_idx in enumerate(ragged_shape[:-1]):
-            utts.append(' '.join(words[start_idx:ragged_shape[idx + 1]]))
-            import pdb; pdb.set_trace()
-    else:
-        # import pdb; pdb.set_trace()
-        # token_int = ragged_shape
+    if numericalizer is not None:
         token_ints= k2.ragged.to_list(word_seqs)
         for token_int in token_ints:
-            token = converter.ids2tokens(token_int)
-            text=tokenizer.tokens2text(token)
+            token = numericalizer.ids2tokens(token_int)
+            text=numericalizer.tokens2text(token)
             utts.append(text)
+
+    elif converter is None:
+        pass
+        # for idx, start_idx in enumerate(ragged_shape[:-1]):
+        #     utts.append(' '.join(words[start_idx:ragged_shape[idx + 1]]))
+        #     import pdb; pdb.set_trace()
+    else:
+        pass
+        # # import pdb; pdb.set_trace()
+        # # token_int = ragged_shape
+        # token_ints= k2.ragged.to_list(word_seqs)
+        # for token_int in token_ints:
+        #     token = converter.ids2tokens(token_int)
+        #     text=tokenizer.tokens2text(token)
+        #     utts.append(text)
     return utts
 
 
@@ -139,13 +149,14 @@ class TextFileDataIterator(AbsLMDataIterator):
 
 class AuxlabelDataIterator(AbsLMDataIterator):
 
-    def __init__(self, dataset_option, converter, tokenizer):
+    def __init__(self, dataset_option, numericalizer, converter, tokenizer):
         super().__init__(**(dataset_option.__dict__))
         self.converter = converter
         self.tokenizer = tokenizer
+        self.numericalizer = numericalizer
 
     def _text_generator(self, word_seqs):
         # word_seqs --> text
-        texts = auxlabel_to_word(word_seqs, self.symbol_table, self.converter, self.tokenizer)
+        texts = auxlabel_to_word(word_seqs, self.symbol_table, self.numericalizer, self.converter, self.tokenizer)
         for text in texts:
             yield text

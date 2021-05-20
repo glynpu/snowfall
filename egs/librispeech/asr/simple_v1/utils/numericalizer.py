@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Union
 from pathlib import Path
+
+import numpy as np
 
 from torchtext.data.functional import load_sp_model
 
@@ -40,6 +42,9 @@ class SpmNumericalizer(NumericalizerMixin):
     def text2tokens(self, line: str) -> List[str]:
         return self.tokenizer.EncodeAsPieces(line)
 
+    def tokens2text(self, tokens: Iterable[str]) -> str:
+        return self.tokenizer.DecodePieces(list(tokens))
+
     @property
     def token2idx(self):
         if self._token2idx is None:
@@ -50,6 +55,11 @@ class SpmNumericalizer(NumericalizerMixin):
                 self._token2idx[token] = idx
 
         return self._token2idx
+
+    def ids2tokens(self, integers: Union[np.ndarray, Iterable[int]]) -> List[str]:
+        if isinstance(integers, np.ndarray) and integers.ndim != 1:
+            raise ValueError(f"Must be 1 dim ndarray, but got {integers.ndim}")
+        return [self.token_list[i] for i in integers]
 
 
     def __call__(self, text: str) -> List[int]:
