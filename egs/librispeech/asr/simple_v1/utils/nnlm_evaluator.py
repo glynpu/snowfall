@@ -34,9 +34,7 @@ def build_nnlmevaluator(args,
                         device='cpu',
                         input_type='text_file',
                         batch_size=32,
-                        numericalizer=None,
-                        converter=None,
-                        tokenizer=None):
+                        numericalizer=None):
     _validate_input_type(input_type)
     lm_model_file = args.lm_model_file
     train_args = _load_espnet_model_config(args.lm_train_config)
@@ -64,7 +62,7 @@ def build_nnlmevaluator(args,
                                        preprocessor=numericalizer,
                                        words_txt='./data/lang_nosp/token2id.txt')
                                        # words_txt='./data/lang_nosp/words.txt')
-        dataset = AuxlabelDataIterator(dataset_option, numericalizer=numericalizer, converter=converter, tokenizer=tokenizer)
+        dataset = AuxlabelDataIterator(dataset_option, numericalizer=numericalizer)
 
     evaluator = NNLMEvaluator(lm=model, dataset=dataset, device=device)
     return evaluator

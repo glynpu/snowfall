@@ -18,8 +18,6 @@ from typing import List, Dict
 
 from local_snowfall.asr import build_model
 from utils.numericalizer import SpmNumericalizer
-# from espnet2.text.build_tokenizer import build_tokenizer
-# from espnet2.text.token_id_converter import TokenIDConverter
 from espnet2.torch_utils.device_funcs import to_device
 from espnet2.torch_utils.set_all_random_seed import set_all_random_seed
 
@@ -137,8 +135,6 @@ class Speech2Text:
         token_type = asr_train_args.token_type
         bpemodel = asr_train_args.bpemodel
 
-        # tokenizer = build_tokenizer(token_type=token_type, bpemodel=bpemodel)
-        # converter = TokenIDConverter(token_list=token_list)
 
         self.numericalizer = SpmNumericalizer(tokenizer_type='spm',
                 tokenizer_file=asr_train_args.bpemodel,
@@ -148,9 +144,6 @@ class Speech2Text:
         # logging.info(f"Text tokenizer: {tokenizer}")
 
         self.asr_model = asr_model
-        # self.asr_train_args = asr_train_args
-        # self.converter = converter
-        # self.tokenizer = tokenizer
         self.device = device
         self.dtype = dtype
         phone_ids_with_blank = [i for i in range(5000)]
@@ -167,7 +160,7 @@ class Speech2Text:
         import argparse
         d_args ={'lm_train_config':'exp/lm_train_lm_transformer2_en_bpe5000/config.yaml', 'lm_model_file': 'exp/lm_train_lm_transformer2_en_bpe5000/valid.loss.ave.pth'}
         args = argparse.Namespace(**d_args)
-        self.evaluator = build_nnlmevaluator(args, device=device, input_type='auxlabel', numericalizer=self.numericalizer, converter=None, tokenizer=None)
+        self.evaluator = build_nnlmevaluator(args, device=device, input_type='auxlabel', numericalizer=self.numericalizer)
 
     @torch.no_grad()
     def __call__(
@@ -236,31 +229,19 @@ class Speech2Text:
                 num_paths=num_paths,
                 use_whole_lattice=use_whole_lattice)
 
-        # hyps = get_texts(best_paths, indices)
         token_int = best_paths.aux_labels[best_paths.aux_labels != 0]
-        # import pdb; pdb.set_trace()
-        # import pdb; pdb.set_trace()
 
-        # best_paths = k2.shortest_path(lattices, use_double_scores=True)
-
-        # token_int = best_paths[0].aux_labels.cpu().numpy()
         token_int = list(filter(lambda x: x != 0, token_int))[:-1]
-        # import pdb; pdb.set_trace()
-        # token = self.converter.ids2tokens(token_int)
         token = self.numericalizer.ids2tokens(token_int)
-        # token = list(filter(lambda x: x != '<sox/eos>', token))
         if token[-1] == '<sos/eos>':
             token = token[:-1]
 
-        # text = self.tokenizer.tokens2text(token)
         text = self.numericalizer.tokens2text(token)
 
-        # import pdb; pdb.set_trace()
         results = []
         hyp = None
         results.append((text, token, token_int, hyp))
         return results
-        # return None
 
 def inference(
     batch_size: int,
