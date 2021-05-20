@@ -2,40 +2,37 @@
 import argparse
 import logging
 import os
-from pathlib import Path
-import sys
-from typing import Optional, Sequence, Tuple, Union, List, Dict
-
-import numpy as np
 import random
 import re
-import torch
-from typeguard import check_argument_types
-from typeguard import check_return_type
+import sys
 
+from pathlib import Path
+from typing import Optional, Sequence, Tuple, Union, List, Dict
+
+import k2
+import numpy as np
+import torch
+
+from kaldialign import edit_distance
 from lhotse import load_manifest
 from lhotse.dataset import K2SpeechRecognitionDataset, SingleCutSampler
 from lhotse.dataset.input_strategies import AudioSamples
-from pathlib import Path
 
 from local_snowfall.asr import build_model
 from utils.numericalizer import SpmNumericalizer
 
-import k2
-from snowfall.training.ctc_graph import build_ctc_topo
 from lhotse import load_manifest
 from local_snowfall.common import _load_espnet_model_config
 
+from snowfall.decoding.lm_rescore import decode_with_lm_rescoring
+from snowfall.training.ctc_graph import build_ctc_topo
 from utils.nnlm_evaluator import build_nnlmevaluator
 
-from snowfall.decoding.lm_rescore import decode_with_lm_rescoring
-from kaldialign import edit_distance
 
 def decode(dataloader: torch.utils.data.DataLoader, model: None,
                    device: Union[str, torch.device], ctc_topo: None, evaluator=None, numericalizer=None):
     tot_num_cuts = len(dataloader.dataset.cuts)
     num_cuts = 0
-    dtype: str = "float32"
     results = []
     for batch_idx, batch in enumerate(dataloader):
         assert isinstance(batch, dict), type(batch)
@@ -47,7 +44,8 @@ def decode(dataloader: torch.utils.data.DataLoader, model: None,
             speech = torch.tensor(speech)
 
         # data: (Nsamples,) -> (1, Nsamples)
-        speech = speech.unsqueeze(0).to(getattr(torch, dtype))
+        # speech = speech.unsqueeze(0).to(getattr(torch, dtype))
+        speech = speech.unsqueeze(0)
         # lenghts: (1,)
         lengths = speech.new_full([1], dtype=torch.long, fill_value=speech.size(1))
         speech = speech.to(torch.device(device))
@@ -69,11 +67,9 @@ def decode(dataloader: torch.utils.data.DataLoader, model: None,
         supervision_segments = torch.clamp(supervision_segments, min=0)
         indices = torch.argsort(supervision_segments[:, 2], descending=True)
         supervision_segments = supervision_segments[indices]
-        
+
         with torch.no_grad():
             dense_fsa_vec = k2.DenseFsaVec(nnet_output, old_supervision_segments)
-
-            # 0 is for blank
 
             output_beam_size = 8
             lattices = k2.intersect_dense_pruned(ctc_topo, dense_fsa_vec, 20.0, output_beam_size, 30, 10000)
@@ -105,9 +101,11 @@ def decode(dataloader: torch.utils.data.DataLoader, model: None,
                 'batch {}, cuts processed until now is {}/{} ({:.6f}%)'.format(
                     batch_idx, num_cuts, tot_num_cuts,
                     float(num_cuts) / tot_num_cuts * 100))
+        if batch_idx % 20 == 0:
+            # 4.35% [2 / 46, 0 ins, 1 del, 1 sub ]
+            return results
         num_cuts += 1
     return results
-
 
 def get_parser():
     parser = argparse.ArgumentParser(
@@ -141,8 +139,7 @@ def main(cmd=None):
 
     asr_train_args = _load_espnet_model_config(asr_train_config)
     asr_model = build_model(asr_train_args, asr_model_file, device)
-    dtype: str = "float32"
-    asr_model.to(dtype=getattr(torch, dtype)).eval()
+    asr_model.eval()
 
     token_list = asr_train_args.token_list
     token_type = asr_train_args.token_type
@@ -152,7 +149,7 @@ def main(cmd=None):
             token_list=token_list,
             unk_symbol='<unk>')
 
-    phone_ids_with_blank = [i for i in range(5000)]
+    phone_ids_with_blank = [i for i in range(len(token_list))]
 
     lang_dir = './'
     ctc_path = Path(lang_dir) / 'ctc_topo.pt'
@@ -171,10 +168,10 @@ def main(cmd=None):
     d_args ={'lm_train_config':'exp/lm_train_lm_transformer2_en_bpe5000/config.yaml', 'lm_model_file': 'exp/lm_train_lm_transformer2_en_bpe5000/valid.loss.ave.pth'}
     args = argparse.Namespace(**d_args)
     evaluator = build_nnlmevaluator(args, device=device, input_type='auxlabel', numericalizer=numericalizer)
-    # new_loader = wav_loader('dump/raw/test_clean/wav.scp')
     feature_dir = Path('exp/data')
 
-    test_sets = ['test-clean', 'test-other']
+    # test_sets = ['test-clean', 'test-other']
+    test_sets = ['test-clean']
     for test_set in test_sets:
         cuts_test = load_manifest(feature_dir / f'cuts_{test_set}.json.gz')
         sampler = SingleCutSampler(cuts_test, max_cuts=1)
@@ -188,7 +185,6 @@ def main(cmd=None):
                           evaluator=evaluator,
                           numericalizer=numericalizer)
 
-        # import pdb; pdb.set_trace()
         dists = [edit_distance(r, h) for r, h in results]
         errors = {
             key: sum(dist[key] for dist in dists)
@@ -201,8 +197,6 @@ def main(cmd=None):
             f'[{test_set}] %WER {errors["total"] / total_words:.2%} '
             f'[{errors["total"]} / {total_words}, {errors["ins"]} ins, {errors["del"]} del, {errors["sub"]} sub ]'
         )
-
-
 
 
 if __name__ == "__main__":
