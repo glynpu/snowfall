@@ -30,14 +30,15 @@ def _load_espnet_model_config(config_file):
         args = yaml.safe_load(f)
     return argparse.Namespace(**args)
 
-def build_nnlmevaluator(args,
+def build_nnlmevaluator(lm_train_config,
+                        lm_model_file,
                         device='cpu',
                         input_type='text_file',
                         batch_size=32,
                         numericalizer=None):
     _validate_input_type(input_type)
-    lm_model_file = args.lm_model_file
-    train_args = _load_espnet_model_config(args.lm_train_config)
+    lm_model_file = lm_model_file
+    train_args = _load_espnet_model_config(lm_train_config)
 
     lm_config = copy.deepcopy(train_args.lm_conf)
     lm_config['vocab_size'] = len(train_args.token_list)

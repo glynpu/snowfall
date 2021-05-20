@@ -13,10 +13,15 @@ import torch
 
 from local_snowfall.default import DefaultFrontend
 from local_snowfall.default import GlobalMVN
+from local_snowfall.common import _load_espnet_model_config
 from snowfall.models.conformer import Conformer
 from local_snowfall.common import rename_state_dict, combine_qkv
+from utils.numericalizer import SpmNumericalizer
 
-def build_model(args: argparse.Namespace, asr_model_file, device):
+def build_model(asr_train_config, asr_model_file, device):
+    args = _load_espnet_model_config(asr_train_config)
+    # asr_model = build_model(asr_train_args, asr_model_file, device)
+
     token_list = list(args.token_list)
     vocab_size = len(token_list)
 
@@ -64,7 +69,16 @@ def build_model(args: argparse.Namespace, asr_model_file, device):
 
     model.load_state_dict(state_dict, strict=False)
     model = model.to(torch.device(device))
-    return model
+
+
+    token_list = args.token_list
+    token_type = args.token_type
+    # bpemodel = args.bpemodel
+    numericalizer = SpmNumericalizer(tokenizer_type='spm',
+            tokenizer_file=args.bpemodel,
+            token_list=token_list,
+            unk_symbol='<unk>')
+    return model, numericalizer
 
 class ESPnetASRModel(torch.nn.Module):
     """CTC-attention hybrid Encoder-Decoder model"""

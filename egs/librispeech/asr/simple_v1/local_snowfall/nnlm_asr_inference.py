@@ -19,10 +19,8 @@ from lhotse.dataset import K2SpeechRecognitionDataset, SingleCutSampler
 from lhotse.dataset.input_strategies import AudioSamples
 
 from local_snowfall.asr import build_model
-from utils.numericalizer import SpmNumericalizer
 
 from lhotse import load_manifest
-from local_snowfall.common import _load_espnet_model_config
 
 from snowfall.decoding.lm_rescore import decode_with_lm_rescoring
 from snowfall.training.ctc_graph import build_ctc_topo
@@ -44,7 +42,6 @@ def decode(dataloader: torch.utils.data.DataLoader, model: None,
             speech = torch.tensor(speech)
 
         # data: (Nsamples,) -> (1, Nsamples)
-        # speech = speech.unsqueeze(0).to(getattr(torch, dtype))
         speech = speech.unsqueeze(0)
         # lenghts: (1,)
         lengths = speech.new_full([1], dtype=torch.long, fill_value=speech.size(1))
@@ -118,6 +115,8 @@ def get_parser():
     group = parser.add_argument_group("The model configuration related")
     group.add_argument("--asr_train_config", type=str, required=True)
     group.add_argument("--asr_model_file", type=str, required=True)
+    group.add_argument('--lm_train_config', type=str, required=True)
+    group.add_argument('--lm_model_file', type=str, required=True)
 
     return parser
 
@@ -137,19 +136,13 @@ def main(cmd=None):
     np.random.seed(seed)
     torch.random.manual_seed(seed)
 
-    asr_train_args = _load_espnet_model_config(asr_train_config)
-    asr_model = build_model(asr_train_args, asr_model_file, device)
+    asr_model, numericalizer = build_model(asr_train_config, asr_model_file, device)
+
     asr_model.eval()
 
-    token_list = asr_train_args.token_list
-    token_type = asr_train_args.token_type
-    bpemodel = asr_train_args.bpemodel
-    numericalizer = SpmNumericalizer(tokenizer_type='spm',
-            tokenizer_file=asr_train_args.bpemodel,
-            token_list=token_list,
-            unk_symbol='<unk>')
-
-    phone_ids_with_blank = [i for i in range(len(token_list))]
+    # phone_ids_with_blank = [i for i in range(len(token_list))]
+    # import pdb; pdb.set_trace()
+    phone_ids_with_blank = [i for i in range(len(numericalizer.token_list))]
 
     lang_dir = './'
     ctc_path = Path(lang_dir) / 'ctc_topo.pt'
@@ -165,9 +158,8 @@ def main(cmd=None):
 
 
 
-    d_args ={'lm_train_config':'exp/lm_train_lm_transformer2_en_bpe5000/config.yaml', 'lm_model_file': 'exp/lm_train_lm_transformer2_en_bpe5000/valid.loss.ave.pth'}
-    args = argparse.Namespace(**d_args)
-    evaluator = build_nnlmevaluator(args, device=device, input_type='auxlabel', numericalizer=numericalizer)
+    # args = argparse.Namespace(**d_args)
+    evaluator = build_nnlmevaluator(args.lm_train_config, args.lm_model_file, device=device, input_type='auxlabel', numericalizer=numericalizer)
     feature_dir = Path('exp/data')
 
     # test_sets = ['test-clean', 'test-other']
