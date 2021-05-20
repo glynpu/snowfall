@@ -4,126 +4,45 @@ import logging
 import os
 from pathlib import Path
 import sys
-from typing import Optional
-from typing import Sequence
-from typing import Tuple
-from typing import Union
+from typing import Optional, Sequence, Tuple, Union, List, Dict
 
 import numpy as np
+import random
 import re
 import torch
 from typeguard import check_argument_types
 from typeguard import check_return_type
-from typing import List, Dict
 
 from local_snowfall.asr import build_model
 from utils.numericalizer import SpmNumericalizer
-from espnet2.torch_utils.device_funcs import to_device
-from espnet2.torch_utils.set_all_random_seed import set_all_random_seed
-
-
-
 
 import k2
 from snowfall.training.ctc_graph import build_ctc_topo
 from local_snowfall.data import wav_loader
 from local_snowfall.common import _load_espnet_model_config
+
 from utils.nnlm_evaluator import build_nnlmevaluator
 
 from snowfall.decoding.lm_rescore import decode_with_lm_rescoring
+
 from snowfall.common import get_texts
 
-def rename_state_dict(rename_patterns: List[Tuple[str, str]],
-                      state_dict: Dict[str, torch.Tensor]):
-    # Rename state dict to load espent model
-    if rename_patterns is not None:
-        for old_pattern, new_pattern in rename_patterns:
-            # old_keys = [k for k in state_dict if k.find(old_pattern) != -1]
-            old_keys = [k for k in state_dict if re.match(old_pattern, k) is not None]
-            for k in old_keys:
-                v = state_dict.pop(k)
-                new_k = re.sub(old_pattern, new_pattern, k)
-                state_dict[new_k] = v
-
-def combine_qkv(state_dict: Dict[str, torch.Tensor], num_encoder_layers=11):
-    for layer in range(num_encoder_layers + 1):
-        q_w = state_dict[f'encoder.encoders.{layer}.self_attn.linear_q.weight']
-        k_w = state_dict[f'encoder.encoders.{layer}.self_attn.linear_k.weight']
-        v_w = state_dict[f'encoder.encoders.{layer}.self_attn.linear_v.weight']
-        q_b = state_dict[f'encoder.encoders.{layer}.self_attn.linear_q.bias']
-        k_b = state_dict[f'encoder.encoders.{layer}.self_attn.linear_k.bias']
-        v_b = state_dict[f'encoder.encoders.{layer}.self_attn.linear_v.bias']
-
-        for param_type in ['weight', 'bias']:
-            for layer_type in ['q', 'k', 'v']:
-                key_to_remove = f'encoder.encoders.{layer}.self_attn.linear_{layer_type}.{param_type}'
-                state_dict.pop(key_to_remove)
-
-        in_proj_weight = torch.cat([q_w, k_w, v_w], dim=0)
-        in_proj_bias= torch.cat([q_b, k_b, v_b], dim=0)
-        key_weight = f'encoder.encoders.{layer}.self_attn.in_proj.weight'
-        state_dict[key_weight] = in_proj_weight
-        key_bias = f'encoder.encoders.{layer}.self_attn.in_proj.bias'
-        state_dict[key_bias] = in_proj_bias
 
 
 class Speech2Text:
-    """Speech2Text class
-
-    Examples:
-        >>> import soundfile
-        >>> speech2text = Speech2Text("asr_config.yml", "asr.pth")
-        >>> audio, rate = soundfile.read("speech.wav")
-        >>> speech2text(audio)
-        [(text, token, token_int, hypothesis object), ...]
-
-    """
-
     def __init__(
         self,
         asr_train_config: Union[Path, str],
         asr_model_file: Union[Path, str] = None,
-        token_type: str = None,
-        bpemodel: str = None,
         device: str = "cpu",
-        maxlenratio: float = 0.0,
-        batch_size: int = 1,
-        lang_dir: str = './',
     ):
         assert check_argument_types()
-
+        lang_dir = './'
         # 1. Build ASR model
         asr_train_args = _load_espnet_model_config(asr_train_config)
 
-
-
-        model = build_model(asr_train_args)
+        model = build_model(asr_train_args, asr_model_file, device)
         asr_model = model.to(device)
-        # import pdb; pdb.set_trace()
-        state_dict = torch.load(asr_model_file, map_location=device)
-        state_dict = {k:v for k,v in state_dict.items() if not k.startswith('decoder')}
-        rename_patterns = [
-            ('encoder.embed.out.0.weight', 'encoder.embed.out.weight'),
-            ('encoder.embed.out.0.bias', 'encoder.embed.out.bias'),
-            (r'(encoder.encoders.)(\d+)(.self_attn.)linear_out([\s\S*])', r'\1\2\3out_proj\4'),
-            (r'(encoder.encoders.)(\d+)', r'\1layers.\2'),
-
-            # encoder.encoders.layers.0.feed_forward.w_1.weight 
-            # encoder.encoders.layers.10.feed_forward.0.bias
-            (r'(encoder.encoders.layers.)(\d+)(.feed_forward.)(w_1)', r'\1\2.feed_forward.0'),
-            (r'(encoder.encoders.layers.)(\d+)(.feed_forward.)(w_2)', r'\1\2.feed_forward.3'),
-            (r'(encoder.encoders.layers.)(\d+)(.feed_forward_macaron.)(w_1)', r'\1\2.feed_forward_macaron.0'),
-            (r'(encoder.encoders.layers.)(\d+)(.feed_forward_macaron.)(w_2)', r'\1\2.feed_forward_macaron.3'),
-            (r'(encoder.embed.)([\s\S*])', r'encoder.encoder_embed.\2'),
-            (r'(encoder.encoders.)([\s\S*])', r'encoder.encoder.\2'),
-            (r'(ctc.ctc_lo.)([\s\S*])', r'encoder.encoder_output_layer.1.\2'),
-        ]
-        combine_qkv(state_dict, num_encoder_layers=11)
-
-
-
-        rename_state_dict(rename_patterns=rename_patterns, state_dict=state_dict)
-        asr_model.load_state_dict(state_dict, strict=False)
 
         dtype: str = "float32"
         asr_model.to(dtype=getattr(torch, dtype)).eval()
@@ -184,10 +103,13 @@ class Speech2Text:
         speech = speech.unsqueeze(0).to(getattr(torch, self.dtype))
         # lenghts: (1,)
         lengths = speech.new_full([1], dtype=torch.long, fill_value=speech.size(1))
+
+        speech = speech.to(torch.device(self.device))
+        lengths = lengths.to(torch.device(self.device))
         batch = {"speech": speech, "speech_lengths": lengths}
 
         # a. To device
-        batch = to_device(batch, device=self.device)
+        # batch = to_device(batch, device=self.device)
 
         # import pdb; pdb.set_trace()
         nnet_output, _ = self.asr_model.encode(**batch)
@@ -243,37 +165,46 @@ class Speech2Text:
         results.append((text, token, token_int, hyp))
         return results
 
-def inference(
-    batch_size: int,
-    ngpu: int,
-    seed: int,
-    num_workers: int,
-    asr_train_config: str,
-    asr_model_file: str,
-    token_type: Optional[str],
-    bpemodel: Optional[str],
-):
-    assert check_argument_types()
-    if ngpu > 1:
-        raise NotImplementedError("only single GPU decoding is supported")
+def get_parser():
+    parser = argparse.ArgumentParser(
+        description="ASR Decoding with model from espnet model zoo",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
 
+    parser.add_argument("--seed", type=int, default=2021, help="Random seed")
 
-    if ngpu >= 1:
-        device = "cuda"
-    else:
-        device = "cpu"
+    group = parser.add_argument_group("The model configuration related")
+    group.add_argument("--asr_train_config", type=str, required=True)
+    group.add_argument("--asr_model_file", type=str, required=True)
+
+    return parser
+
+def main(cmd=None):
+    parser = get_parser()
+    print(f'cmd {cmd}')
+    args = parser.parse_args(cmd)
+    asr_train_config = args.asr_train_config
+    asr_model_file = args.asr_model_file
+    seed = args.seed
+
+    device = "cuda"
 
     # 1. Set random-seed
-    set_all_random_seed(seed)
+    # set_all_random_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.random.manual_seed(seed)
 
     # 2. Build speech2text
+    import pdb; pdb.set_trace()
     speech2text = Speech2Text(
         asr_train_config=asr_train_config,
         asr_model_file=asr_model_file,
-        token_type=token_type,
-        bpemodel=bpemodel,
+        # token_type=token_type,
         device=device,
     )
+
+
 
     new_loader = wav_loader('dump/raw/test_clean/wav.scp')
 
@@ -297,67 +228,8 @@ def inference(
                 key = keys[n]
                 writer.write(f'{key} {text}\n')
 
-def get_parser():
-    # parser = config_argparse.ArgumentParser(
-    parser = argparse.ArgumentParser(
-        description="ASR Decoding",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-
-    parser.add_argument(
-        "--ngpu",
-        type=int,
-        default=0,
-        help="The number of gpus. 0 indicates CPU mode",
-    )
-    parser.add_argument("--seed", type=int, default=0, help="Random seed")
-    parser.add_argument(
-        "--num_workers",
-        type=int,
-        default=1,
-        help="The number of workers used for DataLoader",
-    )
-
-    group = parser.add_argument_group("Input data related")
-
-    group = parser.add_argument_group("The model configuration related")
-    group.add_argument("--asr_train_config", type=str, required=True)
-    group.add_argument("--asr_model_file", type=str, required=True)
-
-    group = parser.add_argument_group("Beam-search related")
-    group.add_argument(
-        "--batch_size",
-        type=int,
-        default=1,
-        help="The batch size for inference",
-    )
-
-    group = parser.add_argument_group("Text converter related")
-    group.add_argument(
-        "--token_type",
-        type=str,
-        default=None,
-        choices=["char", "bpe", None],
-        help="The token type for ASR model. "
-        "If not given, refers from the training args",
-    )
-    group.add_argument(
-        "--bpemodel",
-        type=str,
-        default=None,
-        help="The model path of sentencepiece. "
-        "If not given, refers from the training args",
-    )
-
-    return parser
 
 
-def main(cmd=None):
-    parser = get_parser()
-    print(f'cmd {cmd}')
-    args = parser.parse_args(cmd)
-    kwargs = vars(args)
-    inference(**kwargs)
 
 
 if __name__ == "__main__":

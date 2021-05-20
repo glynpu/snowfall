@@ -14,8 +14,9 @@ import torch
 from local_snowfall.default import DefaultFrontend
 from local_snowfall.default import GlobalMVN
 from snowfall.models.conformer import Conformer
+from local_snowfall.common import rename_state_dict, combine_qkv
 
-def build_model(args: argparse.Namespace):
+def build_model(args: argparse.Namespace, asr_model_file, device):
     token_list = list(args.token_list)
     vocab_size = len(token_list)
 
@@ -41,7 +42,27 @@ def build_model(args: argparse.Namespace):
         encoder=encoder,
     )
 
-    # assert check_return_type(model)
+    state_dict = torch.load(asr_model_file, map_location=device)
+
+    state_dict = {k:v for k,v in state_dict.items() if not k.startswith('decoder')}
+    rename_patterns = [
+        ('encoder.embed.out.0.weight', 'encoder.embed.out.weight'),
+        ('encoder.embed.out.0.bias', 'encoder.embed.out.bias'),
+        (r'(encoder.encoders.)(\d+)(.self_attn.)linear_out([\s\S*])', r'\1\2\3out_proj\4'),
+        (r'(encoder.encoders.)(\d+)', r'\1layers.\2'),
+        (r'(encoder.encoders.layers.)(\d+)(.feed_forward.)(w_1)', r'\1\2.feed_forward.0'),
+        (r'(encoder.encoders.layers.)(\d+)(.feed_forward.)(w_2)', r'\1\2.feed_forward.3'),
+        (r'(encoder.encoders.layers.)(\d+)(.feed_forward_macaron.)(w_1)', r'\1\2.feed_forward_macaron.0'),
+        (r'(encoder.encoders.layers.)(\d+)(.feed_forward_macaron.)(w_2)', r'\1\2.feed_forward_macaron.3'),
+        (r'(encoder.embed.)([\s\S*])', r'encoder.encoder_embed.\2'),
+        (r'(encoder.encoders.)([\s\S*])', r'encoder.encoder.\2'),
+        (r'(ctc.ctc_lo.)([\s\S*])', r'encoder.encoder_output_layer.1.\2'),
+
+        ]
+    combine_qkv(state_dict, num_encoder_layers=11)
+    rename_state_dict(rename_patterns=rename_patterns, state_dict=state_dict)
+
+    model.load_state_dict(state_dict, strict=False)
     return model
 
 class ESPnetASRModel(torch.nn.Module):
