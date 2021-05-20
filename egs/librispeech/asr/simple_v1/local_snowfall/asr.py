@@ -63,6 +63,7 @@ def build_model(args: argparse.Namespace, asr_model_file, device):
     rename_state_dict(rename_patterns=rename_patterns, state_dict=state_dict)
 
     model.load_state_dict(state_dict, strict=False)
+    model = model.to(torch.device(device))
     return model
 
 class ESPnetASRModel(torch.nn.Module):
