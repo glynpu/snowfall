@@ -1,38 +1,41 @@
 import argparse
 import logging
-from typing import Callable
-from typing import Collection
-from typing import Dict
-from typing import List
-from typing import Optional
 from typing import Tuple
-from typing import Union
 
 import numpy as np
 import torch
 
-from local_snowfall.default import DefaultFrontend
+from local_snowfall.default import Fbank
 from local_snowfall.default import GlobalMVN
 from local_snowfall.common import _load_espnet_model_config
 from snowfall.models.conformer import Conformer
 from local_snowfall.common import rename_state_dict, combine_qkv
 from utils.numericalizer import SpmNumericalizer
 
+_ESPNET_ENCODER_KEY_TO_SNOWFALL_KEY = [
+        ('frontend.logmel.melmat', 'frontend.melmat'),
+        ('encoder.embed.out.0.weight', 'encoder.embed.out.weight'),
+        ('encoder.embed.out.0.bias', 'encoder.embed.out.bias'),
+        (r'(encoder.encoders.)(\d+)(.self_attn.)linear_out([\s\S*])', r'\1\2\3out_proj\4'),
+        (r'(encoder.encoders.)(\d+)', r'\1layers.\2'),
+        (r'(encoder.encoders.layers.)(\d+)(.feed_forward.)(w_1)', r'\1\2.feed_forward.0'),
+        (r'(encoder.encoders.layers.)(\d+)(.feed_forward.)(w_2)', r'\1\2.feed_forward.3'),
+        (r'(encoder.encoders.layers.)(\d+)(.feed_forward_macaron.)(w_1)', r'\1\2.feed_forward_macaron.0'),
+        (r'(encoder.encoders.layers.)(\d+)(.feed_forward_macaron.)(w_2)', r'\1\2.feed_forward_macaron.3'),
+        (r'(encoder.embed.)([\s\S*])', r'encoder.encoder_embed.\2'),
+        (r'(encoder.encoders.)([\s\S*])', r'encoder.encoder.\2'),
+        (r'(ctc.ctc_lo.)([\s\S*])', r'encoder.encoder_output_layer.1.\2'),
+        ]
+
 def build_model(asr_train_config, asr_model_file, device):
     args = _load_espnet_model_config(asr_train_config)
-    # asr_model = build_model(asr_train_args, asr_model_file, device)
 
-    token_list = list(args.token_list)
-    vocab_size = len(token_list)
-
-    # import pdb; pdb.set_trace()
     # {'fs': '16k', 'hop_length': 256, 'n_fft': 512}
-    frontend = DefaultFrontend(**args.frontend_conf)
-    input_size = frontend.output_size()
+    frontend = Fbank(**args.frontend_conf)
     normalize = GlobalMVN(**args.normalize_conf)
 
     encoder = Conformer(num_features=80,
-            num_classes=5000,
+            num_classes=len(args.token_list),
             subsampling_factor=4,
             d_model=512,
             nhead=8,
@@ -50,39 +53,20 @@ def build_model(asr_train_config, asr_model_file, device):
     state_dict = torch.load(asr_model_file, map_location=device)
 
     state_dict = {k:v for k,v in state_dict.items() if not k.startswith('decoder')}
-    rename_patterns = [
-        ('encoder.embed.out.0.weight', 'encoder.embed.out.weight'),
-        ('encoder.embed.out.0.bias', 'encoder.embed.out.bias'),
-        (r'(encoder.encoders.)(\d+)(.self_attn.)linear_out([\s\S*])', r'\1\2\3out_proj\4'),
-        (r'(encoder.encoders.)(\d+)', r'\1layers.\2'),
-        (r'(encoder.encoders.layers.)(\d+)(.feed_forward.)(w_1)', r'\1\2.feed_forward.0'),
-        (r'(encoder.encoders.layers.)(\d+)(.feed_forward.)(w_2)', r'\1\2.feed_forward.3'),
-        (r'(encoder.encoders.layers.)(\d+)(.feed_forward_macaron.)(w_1)', r'\1\2.feed_forward_macaron.0'),
-        (r'(encoder.encoders.layers.)(\d+)(.feed_forward_macaron.)(w_2)', r'\1\2.feed_forward_macaron.3'),
-        (r'(encoder.embed.)([\s\S*])', r'encoder.encoder_embed.\2'),
-        (r'(encoder.encoders.)([\s\S*])', r'encoder.encoder.\2'),
-        (r'(ctc.ctc_lo.)([\s\S*])', r'encoder.encoder_output_layer.1.\2'),
 
-        ]
     combine_qkv(state_dict, num_encoder_layers=11)
-    rename_state_dict(rename_patterns=rename_patterns, state_dict=state_dict)
+    rename_state_dict(rename_patterns=_ESPNET_ENCODER_KEY_TO_SNOWFALL_KEY, state_dict=state_dict)
 
     model.load_state_dict(state_dict, strict=False)
     model = model.to(torch.device(device))
 
-
-    token_list = args.token_list
-    token_type = args.token_type
-    # bpemodel = args.bpemodel
     numericalizer = SpmNumericalizer(tokenizer_type='spm',
             tokenizer_file=args.bpemodel,
-            token_list=token_list,
+            token_list=args.token_list,
             unk_symbol='<unk>')
     return model, numericalizer
 
 class ESPnetASRModel(torch.nn.Module):
-    """CTC-attention hybrid Encoder-Decoder model"""
-
     def __init__(
         self,
         frontend: None,
@@ -98,24 +82,13 @@ class ESPnetASRModel(torch.nn.Module):
     def encode(
         self, speech: torch.Tensor, speech_lengths: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Frontend + Encoder. Note that this method is used by asr_inference.py
 
-        Args:
-            speech: (Batch, Length, ...)
-            speech_lengths: (Batch, )
-        """
         feats, feats_lengths = self.frontend(speech, speech_lengths)
 
         feats, feats_lengths = self.normalize(feats, feats_lengths)
-        # feats = speech
-        # feats_lengths = speech_lengths
-        supervision = {}
 
-        supervision['sequence_idx'] = torch.tensor([[0]])
-        supervision['start_frame'] = torch.tensor([[0]])
-        supervision['num_frames'] = torch.tensor([[feats_lengths]])
         feats = feats.permute(0, 2, 1)
 
-        nnet_output, _, _ = self.encoder(feats, supervision)
+        nnet_output, _, _ = self.encoder(feats)
         nnet_output = nnet_output.permute(2, 0, 1)
-        return nnet_output, supervision
+        return nnet_output

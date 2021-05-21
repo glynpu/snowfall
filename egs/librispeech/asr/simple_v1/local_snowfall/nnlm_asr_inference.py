@@ -19,41 +19,35 @@ from lhotse.dataset import K2SpeechRecognitionDataset, SingleCutSampler
 from lhotse.dataset.input_strategies import AudioSamples
 
 from local_snowfall.asr import build_model
-
-from lhotse import load_manifest
-
 from snowfall.decoding.lm_rescore import decode_with_lm_rescoring
 from snowfall.training.ctc_graph import build_ctc_topo
 from utils.nnlm_evaluator import build_nnlmevaluator
 
 
 def decode(dataloader: torch.utils.data.DataLoader, model: None,
-                   device: Union[str, torch.device], ctc_topo: None, evaluator=None, numericalizer=None):
+                   device: Union[str, torch.device], ctc_topo: None, G=None, evaluator=None, numericalizer=None):
     tot_num_cuts = len(dataloader.dataset.cuts)
     num_cuts = 0
     results = []
     for batch_idx, batch in enumerate(dataloader):
         assert isinstance(batch, dict), type(batch)
         speech = batch['inputs'].squeeze()
-        ref = batch['supervisions']['text']
-        lengths = torch.tensor([speech.shape[0]])
+        lengths = batch['supervisions']['num_samples']
         # Input as audio signal
         if isinstance(speech, np.ndarray):
             speech = torch.tensor(speech)
 
         # data: (Nsamples,) -> (1, Nsamples)
         speech = speech.unsqueeze(0)
-        # lenghts: (1,)
-        lengths = speech.new_full([1], dtype=torch.long, fill_value=speech.size(1))
         speech = speech.to(torch.device(device))
         lengths = lengths.to(torch.device(device))
-        batch = {"speech": speech, "speech_lengths": lengths}
 
-        nnet_output, _ = model.encode(**batch)
+        nnet_output = model.encode(speech=speech, speech_lengths=lengths)
         nnet_output = nnet_output.detach()
 
         blank_bias = -1.0
         nnet_output[:, :, 0] += blank_bias
+
 
         old_supervision_segments = torch.tensor([[0, 0, nnet_output.shape[1]]], dtype=torch.int32)
 
@@ -71,7 +65,6 @@ def decode(dataloader: torch.utils.data.DataLoader, model: None,
             output_beam_size = 8
             lattices = k2.intersect_dense_pruned(ctc_topo, dense_fsa_vec, 20.0, output_beam_size, 30, 10000)
 
-        G = None
         num_paths=10
         use_whole_lattice=False
         best_paths = decode_with_lm_rescoring(
@@ -89,6 +82,9 @@ def decode(dataloader: torch.utils.data.DataLoader, model: None,
             token = token[:-1]
 
         text = numericalizer.tokens2text(token)
+
+
+        ref = batch['supervisions']['text']
         for i in range(len(ref)):
             hyp_words = text.split(' ')
             ref_words = ref[i].split(' ')
@@ -120,11 +116,10 @@ def get_parser():
 
     return parser
 
-def main(cmd=None):
+def main():
     parser = get_parser()
     logging.basicConfig(level=logging.DEBUG)
-    print(f'cmd {cmd}')
-    args = parser.parse_args(cmd)
+    args = parser.parse_args()
     asr_train_config = args.asr_train_config
     asr_model_file = args.asr_model_file
     seed = args.seed
@@ -141,7 +136,6 @@ def main(cmd=None):
     asr_model.eval()
 
     # phone_ids_with_blank = [i for i in range(len(token_list))]
-    # import pdb; pdb.set_trace()
     phone_ids_with_blank = [i for i in range(len(numericalizer.token_list))]
 
     lang_dir = './'

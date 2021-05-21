@@ -136,6 +136,8 @@ class Stft(torch.nn.Module):
             )
         else:
             window = None
+        # import pdb; pdb.set_trace()
+        # output = librosa.stft(
         output = torch.stft(
             input,
             n_fft=self.n_fft,
@@ -156,10 +158,10 @@ class Stft(torch.nn.Module):
 
         return output, olens
 
-class DefaultFrontend(torch.nn.Module):
-    """Conventional frontend structure for ASR.
+class Fbank(torch.nn.Module):
+    """
 
-    Stft -> WPE -> MVDR-Beamformer -> Power-spec -> Mel-Fbank -> CMVN
+    Stft -> Power-spec -> Mel-Fbank
     """
 
     def __init__(
@@ -175,8 +177,6 @@ class DefaultFrontend(torch.nn.Module):
         n_mels: int = 80,
         fmin: int = None,
         fmax: int = None,
-        htk: bool = False,
-        # apply_stft: bool = True,
     ):
         super().__init__()
         if isinstance(fs, str):
@@ -192,10 +192,6 @@ class DefaultFrontend(torch.nn.Module):
             onesided=onesided,
         )
 
-        # self.apply_stft = apply_stft
-
-        self.n_mels = n_mels
-
         fmin = 0 if fmin is None else fmin
         fmax = fs / 2 if fmax is None else fmax
         _mel_options = dict(
@@ -204,14 +200,14 @@ class DefaultFrontend(torch.nn.Module):
             n_mels=n_mels,
             fmin=fmin,
             fmax=fmax,
-            htk=htk,
+            # htk=htk,
         )
 
+        # _mel_options = {'sr': 16000, 'n_fft': 512, 'n_mels': 80, 'fmin': 0, 'fmax': 8000.0, 'htk': False}
         melmat = librosa.filters.mel(**_mel_options)
+
         self.register_buffer("melmat", torch.from_numpy(melmat.T).float())
 
-    def output_size(self) -> int:
-        return self.n_mels
 
     def forward(
         self, input: torch.Tensor, input_lengths: torch.Tensor
