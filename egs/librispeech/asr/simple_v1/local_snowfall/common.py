@@ -24,8 +24,8 @@ def rename_state_dict(rename_patterns: List[Tuple[str, str]],
                 new_k = re.sub(old_pattern, new_pattern, k)
                 state_dict[new_k] = v
 
-def combine_qkv(state_dict: Dict[str, torch.Tensor], num_encoder_layers=11):
-    for layer in range(num_encoder_layers + 1):
+def combine_qkv(state_dict: Dict[str, torch.Tensor], num_encoder_layers=12):
+    for layer in range(num_encoder_layers):
         q_w = state_dict[f'encoder.encoders.{layer}.self_attn.linear_q.weight']
         k_w = state_dict[f'encoder.encoders.{layer}.self_attn.linear_k.weight']
         v_w = state_dict[f'encoder.encoders.{layer}.self_attn.linear_v.weight']
