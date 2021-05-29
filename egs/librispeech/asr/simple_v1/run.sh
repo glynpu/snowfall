@@ -7,7 +7,7 @@
 
 set -eou pipefail
 
-stage=0
+stage=7
 
 if [ $stage -le 1 ]; then
   local/download_lm.sh "openslr.org/resources/11" data/local/lm
@@ -74,6 +74,33 @@ fi
 
 if [ $stage -le 7 ]; then
   # python3 ./decode.py # ctc decoding
-  python3 ./mmi_bigram_decode.py --epoch 9
+  # python3 ./mmi_bigram_decode.py --epoch 9
   #  python3 ./mmi_mbr_decode.py
+  mkdir -p exp/
+  export CUDA_VISIBLE_DEVICES=3
+  ln -sf /home/storage14/guoliyong/open-source/snowfall/egs/librispeech/asr/simple_v1/exp-conformer-noam-mmi-att-musan-sa-vgg ./
+  ln -sf /ceph-ly/open-source/lm_resocre_snowfall/snowfall/egs/librispeech/asr/simple_v1/exp/data ./exp/
+  ln -sf /ceph-ly/open-source/to_submit/espnet_snowfall/snowfall/egs/librispeech/asr/simple_v1/data ./
+  output_dir=result_dir
+  mkdir -p $output_dir
+  python3 ./mmi_att_transformer_decode.py \
+    --output-dir $output_dir \
+    --num-paths -1 \
+    --max-duration 300 \
+    --attention-dim 512 \
+    --use-lm-rescoring True \
+    --avg 15 \
+    --epoch 19
+fi
+
+if [ $stage -le 8 ]; then
+  export CUDA_VISIBLE_DEVICES=3
+  python3 ./mmi_att_transformer_decode.py \
+    --output-dir $output_dir \
+    --num-paths 1000 \
+    --max-duration 300 \
+    --attention-dim 512 \
+    --use-lm-rescoring True \
+    --avg 15 \
+    --epoch 19
 fi

@@ -220,6 +220,11 @@ def get_parser():
              'If it is negative, then rescore with the whole lattice.'\
              'CAUTION: You have to reduce max_duration in case of CUDA OOM'
              )
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        default='exp/',
+        help='output dir for err and recog text')
     return parser
 
 
@@ -285,7 +290,8 @@ def main():
             num_classes=len(phone_ids) + 1,  # +1 for the blank symbol
             subsampling_factor=4,
             num_decoder_layers=num_decoder_layers,
-            vgg_frontend=True)
+            vgg_frontend=True,
+            is_espnet_structure=True)
     elif model_type == "contextnet":
         model = ContextNet(
         num_features=80,
@@ -378,7 +384,8 @@ def main():
 
     # load dataset
     librispeech = LibriSpeechAsrDataModule(args)
-    test_sets = ['test-clean', 'test-other']
+    # test_sets = ['test-clean', 'test-other']
+    test_sets = ['test-clean']
     #  test_sets = ['test-other']
     for test_set, test_dl in zip(test_sets, librispeech.test_dataloaders()):
         logging.info(f'* DECODING: {test_set}')
@@ -393,13 +400,14 @@ def main():
                          use_whole_lattice=use_whole_lattice,
                          output_beam_size=output_beam_size)
 
-        recog_path = exp_dir / f'recogs-{test_set}.txt'
+        output_dir = Path(args.output_dir)
+        recog_path = output_dir / f'recogs-{test_set}.txt'
         store_transcripts(path=recog_path, texts=results)
         logging.info(f'The transcripts are stored in {recog_path}')
 
         # The following prints out WERs, per-word error statistics and aligned
         # ref/hyp pairs.
-        errs_filename = exp_dir / f'errs-{test_set}.txt'
+        errs_filename = output_dir / f'errs-{test_set}.txt'
         with open(errs_filename, 'w') as f:
             write_error_stats(f, test_set, results)
         logging.info('Wrote detailed error stats to {}'.format(errs_filename))
