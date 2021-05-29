@@ -83,24 +83,36 @@ if [ $stage -le 7 ]; then
   ln -sf /ceph-ly/open-source/to_submit/espnet_snowfall/snowfall/egs/librispeech/asr/simple_v1/data ./
   output_dir=result_dir
   mkdir -p $output_dir
+  # no rescore
+  python3 ./mmi_att_transformer_decode.py \
+    --output-dir $output_dir \
+    --num-paths -1 \
+    --max-duration 300 \
+    --attention-dim 512 \
+    --use-lm-rescoring False \
+    --avg 16 \
+    --epoch 19
+
+  # lattice rescore
   python3 ./mmi_att_transformer_decode.py \
     --output-dir $output_dir \
     --num-paths -1 \
     --max-duration 300 \
     --attention-dim 512 \
     --use-lm-rescoring True \
-    --avg 15 \
+    --avg 16 \
     --epoch 19
 fi
 
 if [ $stage -le 8 ]; then
   export CUDA_VISIBLE_DEVICES=3
+  # nbest rescore
   python3 ./mmi_att_transformer_decode.py \
     --output-dir $output_dir \
     --num-paths 1000 \
     --max-duration 300 \
     --attention-dim 512 \
     --use-lm-rescoring True \
-    --avg 15 \
+    --avg 16 \
     --epoch 19
 fi
