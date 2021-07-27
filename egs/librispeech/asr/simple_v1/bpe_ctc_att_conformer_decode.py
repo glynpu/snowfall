@@ -25,7 +25,6 @@ from snowfall.common import str2bool
 from snowfall.common import write_error_stats
 from snowfall.models.conformer import Conformer
 from snowfall.text.numericalizer import Numericalizer
-from snowfall.training.ctc_graph import build_ctc_topo
 
 def decode(dataloader: torch.utils.data.DataLoader,
            model: None,
@@ -244,7 +243,7 @@ def main():
 
     if not os.path.exists(ctc_path):
         logging.info("Generating ctc topo...")
-        ctc_topo = k2.arc_sort(build_ctc_topo(token_ids_with_blank))
+        ctc_topo = k2.arc_sort(k2.ctc_topo(max(token_ids_with_blank)))
         torch.save(ctc_topo.as_dict(), ctc_path)
 
     else:

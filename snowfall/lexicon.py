@@ -11,7 +11,8 @@ import k2
 
 
 class Lexicon:
-    def __init__(self, lang_dir: Path):
+    def __init__(self, lang_dir: Path, bpe: bool = False):
+        self.bpe = bpe
         self.lang_dir = lang_dir
         self.phones = k2.SymbolTable.from_file(self.lang_dir / 'phones.txt')
         self.words = k2.SymbolTable.from_file(self.lang_dir / 'words.txt')
@@ -25,6 +26,13 @@ class Lexicon:
                 L_inv = k2.arc_sort(L.invert_())
                 torch.save(L_inv.as_dict(), self.lang_dir / 'Linv.pt')
         self.L_inv = L_inv
+        self.L_bpe = {}
+        if (self.lang_dir / 'lexicon.txt').exists() and self.bpe:
+            for line in open(self.lang_dir / 'lexicon.txt').readlines():
+                toks = line.strip().split(" ")
+                self.L_bpe[toks[0]] = [self.phones[x] for x in toks[1:]]
+        else:
+            logging.error("No lexicon.txt in the lang directory.")
 
     def phone_symbols(
             self,
@@ -50,5 +58,3 @@ class Lexicon:
             ans.remove(0)
         ans.sort()
         return ans
-
-
