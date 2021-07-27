@@ -27,12 +27,13 @@ class Lexicon:
                 torch.save(L_inv.as_dict(), self.lang_dir / 'Linv.pt')
         self.L_inv = L_inv
         self.L_bpe = {}
-        if (self.lang_dir / 'lexicon.txt').exists() and self.bpe:
-            for line in open(self.lang_dir / 'lexicon.txt').readlines():
-                toks = line.strip().split(" ")
-                self.L_bpe[toks[0]] = [self.phones[x] for x in toks[1:]]
-        else:
-            logging.error("No lexicon.txt in the lang directory.")
+        if self.bpe:
+            if (self.lang_dir / 'lexicon.txt').exists():
+                for line in open(self.lang_dir / 'lexicon.txt').readlines():
+                    toks = line.strip().split(" ")
+                    self.L_bpe[toks[0]] = [self.phones[x] for x in toks[1:]]
+            else:
+                logging.error("No lexicon.txt in the lang directory.")
 
     def phone_symbols(
             self,
