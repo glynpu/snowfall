@@ -27,7 +27,6 @@ from snowfall.decoding.graph import compile_HLG
 from snowfall.models import AcousticModel
 from snowfall.models.transformer import Transformer
 from snowfall.models.conformer import Conformer
-from snowfall.training.ctc_graph import build_ctc_topo
 from snowfall.training.mmi_graph import get_phone_symbols
 
 
@@ -152,8 +151,7 @@ def main():
     phone_symbol_table = k2.SymbolTable.from_file(lang_dir / 'phones.txt')
 
     phone_ids = get_phone_symbols(phone_symbol_table)
-    phone_ids_with_blank = [0] + phone_ids
-    ctc_topo = k2.arc_sort(build_ctc_topo(phone_ids_with_blank))
+    ctc_topo = k2.arc_sort(k2.ctc_topo(max(phone_ids)))
 
     logging.debug("About to load model")
     # Note: Use "export CUDA_VISIBLE_DEVICES=N" to setup device id to N

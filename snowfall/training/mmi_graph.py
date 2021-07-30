@@ -8,7 +8,6 @@ import k2
 import torch
 
 from snowfall.common import get_phone_symbols
-from .ctc_graph import build_ctc_topo
 from ..lexicon import Lexicon
 
 
@@ -76,9 +75,9 @@ class MmiTrainingGraphCompiler(object):
         self.device = device
 
         phone_symbols = get_phone_symbols(self.lexicon.phones)
-        phone_symbols_with_blank = [0] + phone_symbols
+        max_token_id = max(phone_symbols)
 
-        ctc_topo = build_ctc_topo(phone_symbols_with_blank).to(device)
+        ctc_topo = k2.ctc_topo(max_token_id).to(device)
         assert ctc_topo.requires_grad is False
 
         self.ctc_topo_inv = k2.arc_sort(ctc_topo.invert_())

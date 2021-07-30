@@ -30,6 +30,7 @@ from snowfall.common import save_training_info
 from snowfall.common import setup_logger
 from snowfall.data.librispeech import LibriSpeechAsrDataModule
 from snowfall.dist import setup_dist
+from snowfall.lexicon import Lexicon
 from snowfall.models import AcousticModel
 from snowfall.models.conformer import Conformer
 from snowfall.models.transformer import Noam
@@ -64,7 +65,6 @@ def get_objf(batch: Dict,
 
     supervisions = batch['supervisions']
 
-    loss_fn = CTCLoss(graph_compiler)
     supervision_segments = torch.stack(
         (supervisions['sequence_idx'],
          (((supervisions['start_frame'] - 1) // 2 - 1) // 2),
@@ -80,37 +80,28 @@ def get_objf(batch: Dict,
 
         blank_id = 0
         unk_id = 1 # i.e. oov_id
-        token_ids = []
-        # for text in texts:
-        #     token_ids.append(list(filter(lambda x: x != blank_id and x != unk_id, numericalizer.EncodeAsIds(text.upper()))))
-
 
         if att_rate != 0.0:
             att_loss = model.module.decoder_forward(encoder_memory, memory_mask,
                        supervision=supervisions, graph_compiler=graph_compiler)
 
         # Prepare to compute ctc_loss
-        nnet_output = nnet_output.permute(2, 0, 1)  # Now is [T, N, C], as required by torch.nn.CTCLoss
-
-        # target_lengths = torch.tensor([len(token_id) for token_id in token_ids])  # N
-        # target= torch.tensor(list(np.concatenate(token_ids).flat))  # size is sum(target_lengths)
-        # assert sum(target_lengths) == len(target)
+        nnet_output = nnet_output.permute(0, 2, 1)  # Now is [N, T, C], as required by k2.ctc_Loss
+        dense_fsa_vec = k2.DenseFsaVec(nnet_output, supervision_segments)
 
         input_lengths = supervision_segments[:,2]
 
         bni = input_lengths.shape[0]  # batch_size of input
-        bno = nnet_output.shape[1]  # batch_size of nnet_output
-        # bnt = target_lengths.shape[0]  # batch_size of target_legnths
+        bno = nnet_output.shape[0]  # batch_size of nnet_output
         assert bno == bni, 'Inconsistent batch-size!'
 
-        # ctc_loss = model.module.ctc_loss_fn(nnet_output, target, input_lengths, target_lengths)
-        tot_score, tot_frames, all_frames = loss_fn(nnet_output.permute(1, 0, 2), texts, supervision_segments)
+        decoding_graph = graph_compiler.compile(texts)
+        ctc_loss = k2.ctc_loss(decoding_graph, dense_fsa_vec)
 
         # Normalized by batch_size
         # Reference: https://github.com/espnet/espnet/blob/master/espnet2/asr/ctc.py#L98
         # ctc_loss = ctc_loss.sum() / bno
-        ctc_loss = -tot_score.sum() / bno
-        # print ("ctc_loss : {}, tot_score : {}".format(ctc_loss, tot_score))
+        ctc_loss = ctc_loss / bno
 
         if att_rate != 0.0:
             loss = ((1.0 - att_rate) * ctc_loss + att_rate * att_loss) *  accum_grad
@@ -147,7 +138,7 @@ def get_objf(batch: Dict,
             optimizer.zero_grad()
 
     # negative loss to get objf
-    ans = - loss.detach().cpu().item(), att_loss.cpu().item(), ctc_loss.cpu().item(), bno
+    ans = loss.detach().cpu().item(), att_loss.cpu().item(), ctc_loss.cpu().item(), bno
     return ans
 
 
@@ -267,7 +258,7 @@ def train_one_epoch(dataloader: torch.utils.data.DataLoader,
         total_objf += curr_batch_objf * curr_batch_num_utts
         epoch_num_utts += curr_batch_num_utts
 
-        loginterval_loss +=  - curr_batch_objf * curr_batch_num_utts #  objf = - loss
+        loginterval_loss += curr_batch_objf * curr_batch_num_utts
         loginterval_att_loss += curr_batch_att_loss * curr_batch_num_utts
         loginterval_ctc_loss += curr_batch_ctc_loss * curr_batch_num_utts
         loginterval_num_utts += curr_batch_num_utts
@@ -484,21 +475,8 @@ def run(rank, world_size, args):
     tokens_file = lang_dir / 'tokens.txt'
     numericalizer = Numericalizer.build_numericalizer(bpe_model_path, tokens_file)
 
-    phone_symbol_table = k2.SymbolTable.from_file(lang_dir / 'phones.txt')
-    word_symbol_table = k2.SymbolTable.from_file(lang_dir / 'words.txt')
-
-    logging.info("Loading L.fst")
-    if (lang_dir / 'Linv.pt').exists():
-        L_inv = k2.Fsa.from_dict(torch.load(lang_dir / 'Linv.pt'))
-    else:
-        with open(lang_dir / 'L.fst.txt') as f:
-            L = k2.Fsa.from_openfst(f.read(), acceptor=False)
-            L_inv = k2.arc_sort(L.invert_())
-            torch.save(L_inv.as_dict(), lang_dir / 'Linv.pt')
-    graph_compiler = CtcTrainingGraphCompiler(
-        L_inv=L_inv,
-        phones=phone_symbol_table,
-        words=word_symbol_table)
+    lexicon = Lexicon(lang_dir, bpe=True)
+    graph_compiler = CtcTrainingGraphCompiler(lexicon, device=device)
 
     if rank == 0:
         logging.info("about to create model")

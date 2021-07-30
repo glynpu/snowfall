@@ -29,6 +29,7 @@ from snowfall.common import describe, str2bool
 from snowfall.common import load_checkpoint, save_checkpoint
 from snowfall.common import save_training_info
 from snowfall.common import setup_logger
+from snowfall.lexicon import Lexicon
 from snowfall.models import AcousticModel
 from snowfall.models.conformer import Conformer
 from snowfall.models.transformer import Noam, Transformer
@@ -365,26 +366,6 @@ def main():
     setup_logger('{}/log/log-train'.format(exp_dir))
     tb_writer = SummaryWriter(log_dir=f'{exp_dir}/tensorboard') if args.tensorboard else None
 
-    # load L, G, symbol_table
-    lang_dir = Path('data/lang_nosp')
-    phone_symbol_table = k2.SymbolTable.from_file(lang_dir / 'phones.txt')
-    word_symbol_table = k2.SymbolTable.from_file(lang_dir / 'words.txt')
-
-    logging.info("Loading L.fst")
-    if (lang_dir / 'Linv.pt').exists():
-        L_inv = k2.Fsa.from_dict(torch.load(lang_dir / 'Linv.pt'))
-    else:
-        with open(lang_dir / 'L.fst.txt') as f:
-            L = k2.Fsa.from_openfst(f.read(), acceptor=False)
-            L_inv = k2.arc_sort(L.invert_())
-            torch.save(L_inv.as_dict(), lang_dir / 'Linv.pt')
-
-    graph_compiler = CtcTrainingGraphCompiler(
-        L_inv=L_inv,
-        phones=phone_symbol_table,
-        words=word_symbol_table
-    )
-    phone_ids = get_phone_symbols(phone_symbol_table)
 
     # load dataset
     feature_dir = Path('exp/data')
@@ -489,6 +470,16 @@ def main():
     logging.info("About to create model")
     device_id = 0
     device = torch.device('cuda', device_id)
+
+    # load L, G, symbol_table
+    lang_dir = Path('data/lang_nosp')
+    lexicon = Lexicon(lang_dir)
+
+    graph_compiler = CtcTrainingGraphCompiler(
+        lexicon=lexicon,
+        device=device
+    )
+    phone_ids = lexicon.phone_symbols()
 
     if att_rate != 0.0:
         num_decoder_layers = 6
